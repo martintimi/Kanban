@@ -10,8 +10,14 @@ import {
   onAuthStateChanged,
   signOut
 } from 'firebase/auth';
+import { 
+  doc, 
+  getDoc, 
+  setDoc 
+} from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import { AUTH_CONFIG } from '../config/auth.config';
+import { db } from '../firebase/config';
 
 // Initialize Firebase
 const app = initializeApp(AUTH_CONFIG.firebase);
@@ -38,29 +44,28 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const userData = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          name: firebaseUser.displayName,
-          photoURL: firebaseUser.photoURL,
-          role: null
-        };
-        setUser(userData);
-        localStorage.setItem('user', JSON.stringify(userData));
+        try {
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          const userData = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            name: firebaseUser.displayName,
+            photoURL: firebaseUser.photoURL,
+            role: userDoc.data()?.role || 'developer'
+          };
+          setUser(userData);
+          localStorage.setItem('user', JSON.stringify(userData));
+        } catch (error) {
+          console.error('Error getting user data:', error);
+        }
       } else {
         setUser(null);
         localStorage.removeItem('user');
       }
       setLoading(false);
     });
-
-    // Check for stored user data
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
 
     return () => unsubscribe();
   }, []);
@@ -119,24 +124,33 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const signup = async ({ fullName, email, password }) => {
+  const signup = async ({ fullName, email, password, role }) => {
     try {
       setLoading(true);
       const result = await createUserWithEmailAndPassword(auth, email, password);
       
-      const user = {
-        id: result.user.uid,
+      // Create user document in Firestore with role
+      const userRef = doc(db, 'users', result.user.uid);
+      await setDoc(userRef, {
+        fullName,
+        email,
+        role,
+        createdAt: new Date().toISOString()
+      });
+
+      const userData = {
+        uid: result.user.uid,
         email: result.user.email,
         name: fullName,
-        role: null
+        role: role
       };
 
       await updateProfile(result.user, {
         displayName: fullName
       });
 
-      setUser(user);
-      localStorage.setItem('user', JSON.stringify(user));
+      setUser(userData);
+      localStorage.setItem('user', JSON.stringify(userData));
       return true;
     } catch (err) {
       console.error('Signup error:', err);
@@ -151,13 +165,17 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true);
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Get user data including role from Firestore
+      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       const userData = {
         uid: userCredential.user.uid,
         email: userCredential.user.email,
         name: userCredential.user.displayName,
         photoURL: userCredential.user.photoURL,
-        role: null
+        role: userDoc.data()?.role || 'developer' // Get role from Firestore
       };
+      
       setUser(userData);
       localStorage.setItem('user', JSON.stringify(userData));
       return userData;

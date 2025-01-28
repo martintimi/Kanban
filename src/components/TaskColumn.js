@@ -114,6 +114,10 @@ const TaskColumn = () => {
   const [sortBy, setSortBy] = useState('newest');
   const [availableUsers, setAvailableUsers] = useState([]);
 
+  // Add role check
+  const canAssignTasks = currentUser?.role === 'admin' || 
+                        currentUser?.role === 'project_manager';
+
   const style = {
     position: "absolute",
     top: "50%",
@@ -795,6 +799,333 @@ const TaskColumn = () => {
     };
   }, [currentUser]);
 
+  // Update the task card to show assignment UI only for proper roles
+  const TaskCard = ({ task }) => (
+    <Card>
+      <CardContent>
+        <Box sx={{ display: "flex", alignItems: "center" }}>
+          {getStatusIcon(task.status)}
+          <Box sx={{ marginLeft: 2, flex: 1 }}>
+            <Typography variant="h6">{task.name}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Due: {new Date(task.dueDate).toLocaleDateString()}
+            </Typography>
+            <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+              {task.priority && (
+                <Typography 
+                  variant="caption" 
+                  sx={{ 
+                    color: task.priority === 'high' ? 'error.main' : 
+                           task.priority === 'medium' ? 'text.secondary' : 
+                           'success.main'
+                  }}
+                >
+                  {task.priority}
+                </Typography>
+              )}
+              {task.assignee && (
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  • {task.assignee}
+                </Typography>
+              )}
+            </Box>
+          </Box>
+          <IconButton
+            onClick={(e) => {
+              e.stopPropagation();
+              handleMenuClick(e, task);
+            }}
+            sx={{ marginLeft: "auto" }}
+          >
+            <MoreVert />
+          </IconButton>
+        </Box>
+        <Box sx={{ mt: 2 }}>
+          <LinearProgress 
+            variant="determinate" 
+            value={task.progress || 0}
+            sx={{ mb: 1, height: 8, borderRadius: 4 }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            Progress: {task.progress || 0}%
+          </Typography>
+        </Box>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Subtasks
+          </Typography>
+          <List dense>
+            {task.subtasks?.map((subtask) => (
+              <ListItem key={subtask.id} disablePadding>
+                <ListItemIcon>
+                  <Checkbox
+                    edge="start"
+                    checked={subtask.completed}
+                    onChange={() => handleSubtaskToggle(task.id, subtask.id)}
+                  />
+                </ListItemIcon>
+                <ListItemText 
+                  primary={subtask.title}
+                  sx={{
+                    textDecoration: subtask.completed ? 'line-through' : 'none',
+                    color: subtask.completed ? 'text.secondary' : 'text.primary'
+                  }}
+                />
+                <ListItemSecondaryAction>
+                  <IconButton 
+                    edge="end" 
+                    size="small"
+                    onClick={() => handleDeleteSubtask(task.id, subtask.id)}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </ListItemSecondaryAction>
+              </ListItem>
+            ))}
+          </List>
+          
+          {/* Add subtask input */}
+          <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+            <TextField
+              size="small"
+              placeholder="New subtask"
+              value={newSubtask}
+              onChange={(e) => setNewSubtask(e.target.value)}
+              fullWidth
+            />
+            <IconButton 
+              onClick={() => handleAddSubtask(task.id)}
+              color="primary"
+            >
+              <AddTaskIcon />
+            </IconButton>
+          </Box>
+        </Box>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Time Tracking
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <TextField
+              label="Estimate (hours)"
+              type="number"
+              size="small"
+              value={timeEstimate}
+              onChange={(e) => setTimeEstimate(e.target.value)}
+            />
+            <TextField
+              label="Time Spent (hours)"
+              type="number"
+              size="small"
+              value={timeSpent}
+              onChange={(e) => setTimeSpent(e.target.value)}
+            />
+          </Box>
+        </Box>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Comments
+          </Typography>
+          <List>
+            {task.comments?.map((comment) => (
+              <ListItem key={comment.id}>
+                <ListItemText
+                  primary={comment.text}
+                  secondary={`${comment.user} - ${new Date(comment.timestamp).toLocaleString()}`}
+                />
+              </ListItem>
+            ))}
+          </List>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <TextField
+              size="small"
+              placeholder="Add a comment"
+              value={taskComments[task.id] || ''}
+              onChange={(e) => handleCommentChange(task.id, e.target.value)}
+              fullWidth
+            />
+            <Button
+              variant="contained"
+              onClick={() => handleAddComment(task.id)}
+            >
+              Comment
+            </Button>
+          </Box>
+        </Box>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Attachments
+          </Typography>
+          <input
+            type="file"
+            id={`file-upload-${task.id}`}
+            hidden
+            onChange={(e) => handleFileUpload(e, task.id)}
+          />
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {task.attachments?.map((attachment) => (
+              <Chip
+                key={attachment.id}
+                label={attachment.name}
+                onClick={() => window.open(attachment.url)}
+                onDelete={() => handleDeleteAttachment(task.id, attachment.id)}
+                icon={<AttachFileIcon />}
+              />
+            ))}
+            <Button
+              component="label"
+              htmlFor={`file-upload-${task.id}`}
+              startIcon={<AttachFileIcon />}
+              size="small"
+            >
+              Add File
+            </Button>
+          </Box>
+        </Box>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Dependencies
+          </Typography>
+          <TextField
+            select
+            fullWidth
+            size="small"
+            value=""
+            onChange={(e) => handleAddDependency(task.id, e.target.value)}
+          >
+            {tasks
+              .filter(t => t.id !== task.id)
+              .map(t => (
+                <MenuItem key={t.id} value={t.id}>
+                  {t.name}
+                </MenuItem>
+              ))}
+          </TextField>
+          <Box sx={{ mt: 1 }}>
+            {task.dependencies?.map(depId => {
+              const depTask = tasks.find(t => t.id === depId);
+              return (
+                <Chip
+                  key={depId}
+                  label={depTask?.name}
+                  onDelete={() => handleRemoveDependency(task.id, depId)}
+                  icon={<LinkIcon />}
+                  sx={{ m: 0.5 }}
+                />
+              );
+            })}
+          </Box>
+        </Box>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Notifications
+          </Typography>
+          <FormGroup>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={task.notifications?.dueDate}
+                  onChange={() => handleNotificationToggle(task.id, 'dueDate')}
+                />
+              }
+              label="Due Date Reminders"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={task.notifications?.mentions}
+                  onChange={() => handleNotificationToggle(task.id, 'mentions')}
+                />
+              }
+              label="@Mentions"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={task.notifications?.statusChanges}
+                  onChange={() => handleNotificationToggle(task.id, 'statusChanges')}
+                />
+              }
+              label="Status Changes"
+            />
+          </FormGroup>
+        </Box>
+        <TaskMenu task={task} />
+
+        {canAssignTasks && (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2">Assign To:</Typography>
+            <TextField
+              select
+              fullWidth
+              size="small"
+              value={task.assignee || ''}
+              onChange={(e) => handleAssignTask(task.id, e.target.value)}
+            >
+              <MenuItem value="">Unassigned</MenuItem>
+              {availableUsers
+                .filter(user => user.role === 'developer')
+                .map(user => (
+                  <MenuItem key={user.uid} value={user.uid}>
+                    {user.email} ({user.role})
+                  </MenuItem>
+                ))}
+            </TextField>
+          </Box>
+        )}
+
+        {/* Show assignee name for all users */}
+        {task.assignee && (
+          <Box sx={{ mt: 1 }}>
+            <Typography variant="body2" color="textSecondary">
+              Assigned to: {
+                availableUsers.find(u => u.uid === task.assignee)?.email || 
+                'Unknown User'
+              }
+            </Typography>
+          </Box>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  // Add task assignment handler
+  const handleAssignTask = async (taskId, assigneeId) => {
+    try {
+      const updatedTasks = tasks.map(task => {
+        if (task.id === taskId) {
+          const updatedTask = {
+            ...task,
+            assignee: assigneeId,
+            updatedAt: new Date().toISOString()
+          };
+
+          // Send notification to assignee
+          if (assigneeId) {
+            NotificationService.notifyTaskAssignment(updatedTask, assigneeId);
+          }
+
+          return updatedTask;
+        }
+        return task;
+      });
+
+      await updateProject(currentProject.id, {
+        ...currentProject,
+        tasks: updatedTasks
+      });
+
+      setTasks(updatedTasks);
+      setSnackbar({
+        open: true,
+        message: 'Task assigned successfully',
+        severity: 'success'
+      });
+    } catch (error) {
+      setError('Failed to assign task: ' + error.message);
+    }
+  };
+
   return (
     <Box sx={{ padding: "37px" }}>
       {error && (
@@ -1042,272 +1373,7 @@ const TaskColumn = () => {
                         exit={{ opacity: 0, x: -20 }}
                         transition={{ duration: 0.2 }}
                       >
-                        <Card
-                          sx={{
-                            marginBottom: 2,
-                            backgroundColor: 'background.paper',
-                            cursor: 'pointer',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                              transform: 'translateY(-4px)',
-                              boxShadow: (theme) => 
-                                theme.palette.mode === 'dark' 
-                                  ? '0 8px 16px rgba(0, 0, 0, 0.4)'
-                                  : '0 8px 16px rgba(0, 0, 0, 0.1)',
-                            },
-                          }}
-                        >
-                          <CardContent>
-                            <Box sx={{ display: "flex", alignItems: "center" }}>
-                              {getStatusIcon(task.status)}
-                              <Box sx={{ marginLeft: 2, flex: 1 }}>
-                                <Typography variant="h6">{task.name}</Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                  Due: {new Date(task.dueDate).toLocaleDateString()}
-                                </Typography>
-                                <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  {task.priority && (
-                                    <Typography 
-                                      variant="caption" 
-                                      sx={{ 
-                                        color: task.priority === 'high' ? 'error.main' : 
-                                               task.priority === 'medium' ? 'text.secondary' : 
-                                               'success.main'
-                                      }}
-                                    >
-                                      {task.priority}
-                                    </Typography>
-                                  )}
-                                  {task.assignee && (
-                                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                                      • {task.assignee}
-                                    </Typography>
-                                  )}
-                                </Box>
-                              </Box>
-                              <IconButton
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleMenuClick(e, task);
-                                }}
-                                sx={{ marginLeft: "auto" }}
-                              >
-                                <MoreVert />
-                              </IconButton>
-                            </Box>
-                            <Box sx={{ mt: 2 }}>
-                              <LinearProgress 
-                                variant="determinate" 
-                                value={task.progress || 0}
-                                sx={{ mb: 1, height: 8, borderRadius: 4 }}
-                              />
-                              <Typography variant="caption" color="text.secondary">
-                                Progress: {task.progress || 0}%
-                              </Typography>
-                            </Box>
-                            <Box sx={{ mt: 2 }}>
-                              <Typography variant="subtitle2" gutterBottom>
-                                Subtasks
-                              </Typography>
-                              <List dense>
-                                {task.subtasks?.map((subtask) => (
-                                  <ListItem key={subtask.id} disablePadding>
-                                    <ListItemIcon>
-                                      <Checkbox
-                                        edge="start"
-                                        checked={subtask.completed}
-                                        onChange={() => handleSubtaskToggle(task.id, subtask.id)}
-                                      />
-                                    </ListItemIcon>
-                                    <ListItemText 
-                                      primary={subtask.title}
-                                      sx={{
-                                        textDecoration: subtask.completed ? 'line-through' : 'none',
-                                        color: subtask.completed ? 'text.secondary' : 'text.primary'
-                                      }}
-                                    />
-                                    <ListItemSecondaryAction>
-                                      <IconButton 
-                                        edge="end" 
-                                        size="small"
-                                        onClick={() => handleDeleteSubtask(task.id, subtask.id)}
-                                      >
-                                        <DeleteIcon fontSize="small" />
-                                      </IconButton>
-                                    </ListItemSecondaryAction>
-                                  </ListItem>
-                                ))}
-                              </List>
-                              
-                              {/* Add subtask input */}
-                              <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                                <TextField
-                                  size="small"
-                                  placeholder="New subtask"
-                                  value={newSubtask}
-                                  onChange={(e) => setNewSubtask(e.target.value)}
-                                  fullWidth
-                                />
-                                <IconButton 
-                                  onClick={() => handleAddSubtask(task.id)}
-                                  color="primary"
-                                >
-                                  <AddTaskIcon />
-                                </IconButton>
-                              </Box>
-                            </Box>
-                            <Box sx={{ mt: 2 }}>
-                              <Typography variant="subtitle2" gutterBottom>
-                                Time Tracking
-                              </Typography>
-                              <Box sx={{ display: 'flex', gap: 2 }}>
-                                <TextField
-                                  label="Estimate (hours)"
-                                  type="number"
-                                  size="small"
-                                  value={timeEstimate}
-                                  onChange={(e) => setTimeEstimate(e.target.value)}
-                                />
-                                <TextField
-                                  label="Time Spent (hours)"
-                                  type="number"
-                                  size="small"
-                                  value={timeSpent}
-                                  onChange={(e) => setTimeSpent(e.target.value)}
-                                />
-                              </Box>
-                            </Box>
-                            <Box sx={{ mt: 2 }}>
-                              <Typography variant="subtitle2" gutterBottom>
-                                Comments
-                              </Typography>
-                              <List>
-                                {task.comments?.map((comment) => (
-                                  <ListItem key={comment.id}>
-                                    <ListItemText
-                                      primary={comment.text}
-                                      secondary={`${comment.user} - ${new Date(comment.timestamp).toLocaleString()}`}
-                                    />
-                                  </ListItem>
-                                ))}
-                              </List>
-                              <Box sx={{ display: 'flex', gap: 1 }}>
-                                <TextField
-                                  size="small"
-                                  placeholder="Add a comment"
-                                  value={taskComments[task.id] || ''}
-                                  onChange={(e) => handleCommentChange(task.id, e.target.value)}
-                                  fullWidth
-                                />
-                                <Button
-                                  variant="contained"
-                                  onClick={() => handleAddComment(task.id)}
-                                >
-                                  Comment
-                                </Button>
-                              </Box>
-                            </Box>
-                            <Box sx={{ mt: 2 }}>
-                              <Typography variant="subtitle2" gutterBottom>
-                                Attachments
-                              </Typography>
-                              <input
-                                type="file"
-                                id={`file-upload-${task.id}`}
-                                hidden
-                                onChange={(e) => handleFileUpload(e, task.id)}
-                              />
-                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                                {task.attachments?.map((attachment) => (
-                                  <Chip
-                                    key={attachment.id}
-                                    label={attachment.name}
-                                    onClick={() => window.open(attachment.url)}
-                                    onDelete={() => handleDeleteAttachment(task.id, attachment.id)}
-                                    icon={<AttachFileIcon />}
-                                  />
-                                ))}
-                                <Button
-                                  component="label"
-                                  htmlFor={`file-upload-${task.id}`}
-                                  startIcon={<AttachFileIcon />}
-                                  size="small"
-                                >
-                                  Add File
-                                </Button>
-                              </Box>
-                            </Box>
-                            <Box sx={{ mt: 2 }}>
-                              <Typography variant="subtitle2" gutterBottom>
-                                Dependencies
-                              </Typography>
-                              <TextField
-                                select
-                                fullWidth
-                                size="small"
-                                value=""
-                                onChange={(e) => handleAddDependency(task.id, e.target.value)}
-                              >
-                                {tasks
-                                  .filter(t => t.id !== task.id)
-                                  .map(t => (
-                                    <MenuItem key={t.id} value={t.id}>
-                                      {t.name}
-                                    </MenuItem>
-                                  ))}
-                              </TextField>
-                              <Box sx={{ mt: 1 }}>
-                                {task.dependencies?.map(depId => {
-                                  const depTask = tasks.find(t => t.id === depId);
-                                  return (
-                                    <Chip
-                                      key={depId}
-                                      label={depTask?.name}
-                                      onDelete={() => handleRemoveDependency(task.id, depId)}
-                                      icon={<LinkIcon />}
-                                      sx={{ m: 0.5 }}
-                                    />
-                                  );
-                                })}
-                              </Box>
-                            </Box>
-                            <Box sx={{ mt: 2 }}>
-                              <Typography variant="subtitle2" gutterBottom>
-                                Notifications
-                              </Typography>
-                              <FormGroup>
-                                <FormControlLabel
-                                  control={
-                                    <Switch
-                                      checked={task.notifications?.dueDate}
-                                      onChange={() => handleNotificationToggle(task.id, 'dueDate')}
-                                    />
-                                  }
-                                  label="Due Date Reminders"
-                                />
-                                <FormControlLabel
-                                  control={
-                                    <Switch
-                                      checked={task.notifications?.mentions}
-                                      onChange={() => handleNotificationToggle(task.id, 'mentions')}
-                                    />
-                                  }
-                                  label="@Mentions"
-                                />
-                                <FormControlLabel
-                                  control={
-                                    <Switch
-                                      checked={task.notifications?.statusChanges}
-                                      onChange={() => handleNotificationToggle(task.id, 'statusChanges')}
-                                    />
-                                  }
-                                  label="Status Changes"
-                                />
-                              </FormGroup>
-                            </Box>
-                            <TaskMenu task={task} />
-                          </CardContent>
-                        </Card>
+                        <TaskCard task={task} />
                       </motion.div>
                     ))}
                 </AnimatePresence>

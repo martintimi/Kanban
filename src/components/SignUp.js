@@ -11,6 +11,7 @@ import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 import CustomButton from "./CustomButton";
 import { useAuth } from "../context/AuthContext";
+import MenuItem from "@mui/material/MenuItem";
 
 import GoogleIcon from "./img/google-logo.5867462c.svg";
 import Github from "./img/aawpwnuou.webp";
@@ -36,6 +37,7 @@ export default function Signup() {
     confirmPassword: "",
   });
   const [formErrors, setFormErrors] = useState({});
+  const [role, setRole] = useState('developer');
 
   const validateForm = () => {
     const errors = {};
@@ -95,6 +97,7 @@ export default function Signup() {
       fullName: formData.fullName,
       email: formData.email,
       password: formData.password,
+      role,
     });
 
     if (success) {
@@ -200,6 +203,19 @@ export default function Signup() {
                 helperText={formErrors.confirmPassword}
                 sx={{ mb: 3 }}
               />
+
+              <TextField
+                select
+                fullWidth
+                label="Role"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                margin="normal"
+              >
+                <MenuItem value="developer">Developer</MenuItem>
+                <MenuItem value="project_manager">Project Manager</MenuItem>
+                <MenuItem value="admin">Admin</MenuItem>
+              </TextField>
 
               <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", width: "100%" }}>
                 <CustomButton

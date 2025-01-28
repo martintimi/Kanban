@@ -29,6 +29,9 @@ import Typography from '@mui/material/Typography';
 import { useNavigate } from 'react-router-dom';
 import TopNav from './components/TopNav';
 import MyTasks from './components/MyTasks';
+import CreateTask from './components/CreateTask';
+import Projects from './components/Projects';
+import { ActivityProvider } from './context/ActivityContext';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -155,6 +158,16 @@ function AppContent() {
             </ProtectedRoute>
           } />
           <Route path="/my-tasks" element={<MyTasks />} />
+          <Route path="/create-task" element={
+            <ProtectedRoute>
+              <CreateTask />
+            </ProtectedRoute>
+          } />
+          <Route path="/projects" element={
+            <ProtectedRoute>
+              <Projects />
+            </ProtectedRoute>
+          } />
         </Routes>
       </Box>
     </Box>
@@ -167,7 +180,9 @@ function App() {
       <AuthProvider>
         <ThemeProvider>
           <ProjectProvider>
-            <AppWithTheme />
+            <ActivityProvider>
+              <AppWithTheme />
+            </ActivityProvider>
           </ProjectProvider>
         </ThemeProvider>
       </AuthProvider>

@@ -1,17 +1,33 @@
-import React from 'react';
-import { Box, IconButton, Typography, Menu, MenuItem, ListItemIcon, AppBar, Toolbar } from '@mui/material';
+import React, { useState, useEffect } from 'react';
+import { Box, IconButton, Typography, Menu, MenuItem, ListItemIcon, AppBar, Toolbar, Button } from '@mui/material';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import LogoutIcon from '@mui/icons-material/Logout';
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import DashboardIcon from '@mui/icons-material/Dashboard';
+import PeopleIcon from '@mui/icons-material/People';
 import Avatar from '@mui/material/Avatar';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import NotificationsIcon from '@mui/icons-material/Notifications';
+import Badge from '@mui/material/Badge';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import ListItemAvatar from '@mui/material/ListItemAvatar';
+import { format } from 'date-fns';
+import { subscribeToNotifications } from '../services/notification.service';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
 const TopNav = () => {
   const { darkMode, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const [anchorEl, setAnchorEl] = React.useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationAnchorEl, setNotificationAnchorEl] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
   const navigate = useNavigate();
 
   const handleAvatarClick = (event) => {
@@ -28,6 +44,25 @@ const TopNav = () => {
     handleClose();
   };
 
+  const handleNotificationClick = (event) => {
+    setNotificationAnchorEl(event.currentTarget);
+  };
+
+  const handleNotificationClose = () => {
+    setNotificationAnchorEl(null);
+  };
+
+  const markAsRead = (notificationId) => {
+    setNotifications(prev => 
+      prev.map(notif => 
+        notif.id === notificationId 
+          ? { ...notif, read: true }
+          : notif
+      )
+    );
+    setUnreadCount(prev => Math.max(0, prev - 1));
+  };
+
   const getAvatarContent = () => {
     if (user?.photoURL) {
       return <Avatar src={user.photoURL} alt={user.name || user.email} />;
@@ -42,48 +77,143 @@ const TopNav = () => {
     );
   };
 
+  useEffect(() => {
+    let cleanup = () => {};
+
+    const setupNotifications = async () => {
+      if (user?.uid) {
+        try {
+          const unsubscribe = await subscribeToNotifications(
+            user.uid, 
+            (notification) => {
+              setNotifications(prev => [{
+                id: Date.now().toString(),
+                ...notification,
+                read: false,
+                timestamp: new Date().toISOString()
+              }, ...prev]);
+              setUnreadCount(prev => prev + 1);
+            }
+          );
+          cleanup = unsubscribe;
+        } catch (error) {
+          console.error('Error setting up notifications:', error);
+        }
+      }
+    };
+
+    setupNotifications();
+    return () => cleanup();
+  }, [user]);
+
   return (
     <AppBar 
       position="fixed" 
       sx={{ 
         zIndex: 1300,
-        left: '240px', // Match sidebar width exactly
-        width: 'calc(100% - 240px)', // Match sidebar width exactly
+        left: '240px',
+        width: 'calc(100% - 240px)',
         bgcolor: darkMode ? '#1e1e1e' : '#fff',
         color: darkMode ? '#fff' : '#555',
         boxShadow: 'none',
         borderBottom: '1px solid',
         borderColor: darkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.12)',
-        height: '64px', // Fixed height
+        height: '64px',
       }}
     >
       <Toolbar sx={{ 
-        justifyContent: 'flex-end', 
-        gap: 2,
-        minHeight: '64px !important', // Override default Toolbar height
-        padding: '0 20px', // Consistent padding
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        minHeight: '64px !important',
+        padding: '0 20px',
       }}>
-        <IconButton 
-          onClick={toggleTheme} 
-          sx={{ 
-            color: 'inherit',
-          }}
-        >
-          {darkMode ? <Brightness7Icon /> : <Brightness4Icon />}
-        </IconButton>
+        <Box sx={{ 
+          display: 'flex', 
+          gap: 2,
+          flex: 1,
+        }}>
+          {user?.role === 'developer' && (
+            <Button 
+              color="inherit" 
+              component={Link} 
+              to="/my-tasks"
+              startIcon={<AssignmentIcon />}
+              sx={{ 
+                fontWeight: 500,
+                '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
+              }}
+            >
+              My Tasks
+            </Button>
+          )}
+          
+          {(user?.role === 'admin' || user?.role === 'project_manager') && (
+            <>
+              <Button 
+                color="inherit" 
+                component={Link} 
+                to="/dashboard"
+                startIcon={<DashboardIcon />}
+                sx={{ 
+                  fontWeight: 500,
+                  '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
+                }}
+              >
+                Projects
+              </Button>
+              <Button 
+                color="inherit" 
+                component={Link} 
+                to="/team"
+                startIcon={<PeopleIcon />}
+                sx={{ 
+                  fontWeight: 500,
+                  '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
+                }}
+              >
+                Team
+              </Button>
+            </>
+          )}
+        </Box>
 
-        <IconButton 
-          onClick={handleAvatarClick}
-          sx={{
-            p: 0.5,
-            '&:hover': {
-              transform: 'scale(1.1)',
-            },
-            transition: 'transform 0.2s',
-          }}
-        >
-          {getAvatarContent()}
-        </IconButton>
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 2,
+        }}>
+          <IconButton
+            color="inherit"
+            onClick={handleNotificationClick}
+            sx={{
+              '&:hover': { transform: 'scale(1.1)' },
+              transition: 'transform 0.2s',
+            }}
+          >
+            <Badge badgeContent={unreadCount} color="error">
+              <NotificationsIcon />
+            </Badge>
+          </IconButton>
+
+          <IconButton 
+            onClick={toggleTheme} 
+            sx={{ color: 'inherit' }}
+          >
+            {darkMode ? <Brightness7Icon /> : <Brightness4Icon />}
+          </IconButton>
+
+          <IconButton 
+            onClick={handleAvatarClick}
+            sx={{
+              p: 0.5,
+              '&:hover': { transform: 'scale(1.1)' },
+              transition: 'transform 0.2s',
+            }}
+          >
+            {getAvatarContent()}
+          </IconButton>
+        </Box>
 
         <Menu
           anchorEl={anchorEl}
@@ -106,6 +236,9 @@ const TopNav = () => {
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {user?.email}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Role: {user?.role}
             </Typography>
           </Box>
           <MenuItem onClick={handleLogout} sx={{ color: 'error.main' }}>
