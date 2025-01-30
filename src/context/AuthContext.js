@@ -20,6 +20,7 @@ import { AUTH_CONFIG } from '../config/auth.config';
 import { db } from '../firebase/config';
 import { useNavigate } from 'react-router-dom';
 import { sessionManager } from '../utils/sessionManager';
+import { useToast } from '../context/ToastContext';
 
 // Initialize Firebase
 const app = initializeApp(AUTH_CONFIG.firebase);
@@ -41,6 +42,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -128,38 +130,46 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const signup = async ({ fullName, email, password, role }) => {
+  const signup = async ({ fullName, email, password, role, photoURL, phone }) => {
     try {
       setLoading(true);
-      const result = await createUserWithEmailAndPassword(auth, email, password);
+      setError(null);
+
+      // Create user in Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
-      // Create user document in Firestore with role
-      const userRef = doc(db, 'users', result.user.uid);
-      await setDoc(userRef, {
+      // Update profile
+      await updateProfile(userCredential.user, {
+        displayName: fullName,
+        photoURL: photoURL || null
+      });
+
+      // Create user document in Firestore
+      const userRef = doc(db, 'users', userCredential.user.uid);
+      const userData = {
+        uid: userCredential.user.uid,
         fullName,
         email,
-        role,
-        createdAt: new Date().toISOString()
-      });
-
-      const userData = {
-        uid: result.user.uid,
-        email: result.user.email,
-        name: fullName,
-        role: role
+        role: role || 'developer',
+        photoURL,
+        phone,
+        createdAt: new Date().toISOString(),
+        unreadNotifications: 0,
+        settings: {
+          emailNotifications: true,
+          pushNotifications: true
+        }
       };
 
-      await updateProfile(result.user, {
-        displayName: fullName
-      });
+      await setDoc(userRef, userData);
 
       setUser(userData);
       localStorage.setItem('user', JSON.stringify(userData));
-      return true;
-    } catch (err) {
-      console.error('Signup error:', err);
-      setError(err.message);
-      return false;
+      
+      return userData;
+    } catch (error) {
+      console.error('Signup error:', error);
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -170,23 +180,21 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       
-      // Get user data including role from Firestore
+      // Get user's additional data from Firestore
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-      if (!userDoc.exists()) {
-        throw new Error('User data not found');
-      }
       
       const userData = {
         uid: userCredential.user.uid,
         email: userCredential.user.email,
         name: userCredential.user.displayName,
-        photoURL: userCredential.user.photoURL,
-        role: userDoc.data()?.role || 'developer'
+        role: userDoc.data()?.role || 'developer',
+        ...userDoc.data()
       };
-      
+
       setUser(userData);
       localStorage.setItem('user', JSON.stringify(userData));
-      navigate('/dashboard');
+      
+      return userData;
     } catch (error) {
       console.error('Login error:', error);
       throw error;

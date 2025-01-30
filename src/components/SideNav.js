@@ -53,6 +53,7 @@ const SideNav = ({ onClose }) => {
     // Common Items
     { text: 'Send email', icon: <FaEnvelope size={20} />, path: '/email' },
     { text: 'Drafts', icon: <FaDraftingCompass size={20} />, path: '/drafts' },
+    { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
   ];
 
   return (

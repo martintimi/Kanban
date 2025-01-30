@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -47,7 +47,7 @@ import {
 } from "@mui/lab";
 import AddIcon from "@mui/icons-material/Add";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
-import { useProjects } from "../context/ProjectContext";
+import { useProjects } from '../context/ProjectContext';
 import CustomButton from "./CustomButton";
 import { AnimatePresence } from 'framer-motion';
 import { motion } from 'framer-motion';
@@ -107,6 +107,18 @@ export default function Dashboard() {
   const [dateRange, setDateRange] = useState('all');
   const { refreshActivities } = useActivities();
   const { user } = useAuth();
+  const [greeting, setGreeting] = useState('');
+
+  useEffect(() => {
+    const getGreeting = () => {
+      const hour = new Date().getHours();
+      if (hour < 12) return '🌅 Good morning';
+      if (hour < 18) return '☀️ Good afternoon';
+      return '🌙 Good evening';
+    };
+
+    setGreeting(getGreeting());
+  }, []);
 
   const handleOpen = () => {
     setFormData({ name: "", description: "", category: '', priority: 'medium', deadline: '', status: 'active' });
@@ -433,12 +445,10 @@ export default function Dashboard() {
 
   return (
     <Box sx={{
-    
       minHeight: '100vh',
       backgroundColor: theme.palette.mode === 'dark' ? '#121212' : '#f5f5f5',
       padding: '0px',
       paddingTop: '64px',
-      // width: 'calc(100% - 400px)',
     }}>
       <Box sx={{ 
         maxWidth: '1200px', 
@@ -449,6 +459,38 @@ export default function Dashboard() {
           <Typography color="text.primary">Dashboard</Typography>
         </Breadcrumbs>
 
+        <Box sx={{ 
+          p: 3, 
+          mb: 4,
+          background: theme.palette.mode === 'dark' 
+            ? 'linear-gradient(to right, #1a1a1a, #2d2d2d)'
+            : 'linear-gradient(to right, #ffffff, #f5f5f5)',
+          borderRadius: 2,
+          boxShadow: theme.palette.mode === 'dark'
+            ? '0 2px 4px rgba(0,0,0,0.2)'
+            : '0 2px 4px rgba(0,0,0,0.05)',
+          color: theme.palette.mode === 'dark' ? '#fff' : '#000'
+        }}>
+          <Typography 
+            variant="h4" 
+            sx={{ 
+              fontWeight: 500,
+              color: theme.palette.mode === 'dark' ? '#fff' : '#000',
+              mb: 1 
+            }}
+          >
+            {`${greeting}, ${user?.fullName || user?.name || user?.email?.split('@')[0] || 'User'}!`}
+          </Typography>
+          <Typography 
+            variant="body1" 
+            sx={{
+              color: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.7)' : 'text.secondary'
+            }}
+          >
+            Welcome to your dashboard. Here's an overview of your projects and tasks.
+          </Typography>
+        </Box>
+
         {error && (
           <MuiAlert severity="error" sx={{ mb: 3 }}>
             {error}
@@ -458,12 +500,30 @@ export default function Dashboard() {
         <Grid container spacing={3} sx={{ mb: 4 }}>
           {statisticsCards.map((item, index) => (
             <Grid item xs={12} sm={6} md={3} key={index}>
-              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <Card sx={{ 
+                height: '100%', 
+                display: 'flex', 
+                flexDirection: 'column',
+                background: theme.palette.mode === 'dark' 
+                  ? 'linear-gradient(to right, #1a1a1a, #2d2d2d)'
+                  : 'linear-gradient(to right, #ffffff, #f5f5f5)',
+                boxShadow: theme.palette.mode === 'dark'
+                  ? '0 2px 4px rgba(0,0,0,0.2)'
+                  : '0 2px 4px rgba(0,0,0,0.05)',
+              }}>
                 <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
+                  <Typography 
+                    color="textSecondary" 
+                    gutterBottom
+                    sx={{ color: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.7)' : 'text.secondary' }}
+                  >
                     {item.title}
                   </Typography>
-                  <Typography variant="h4" component="div">
+                  <Typography 
+                    variant="h4" 
+                    component="div"
+                    sx={{ color: theme.palette.mode === 'dark' ? '#fff' : 'text.primary' }}
+                  >
                     {item.value}
                   </Typography>
                   {item.content}
@@ -748,28 +808,67 @@ export default function Dashboard() {
           </DialogActions>
         </Dialog>
 
-        <Card sx={{ mt: 4 }}>
-          <CardHeader title="Recent Activity" />
+        <Card sx={{ 
+          mt: 4,
+          background: theme.palette.mode === 'dark' 
+            ? 'linear-gradient(to right, #1a1a1a, #2d2d2d)'
+            : 'linear-gradient(to right, #ffffff, #f5f5f5)',
+          boxShadow: theme.palette.mode === 'dark'
+            ? '0 2px 4px rgba(0,0,0,0.2)'
+            : '0 2px 4px rgba(0,0,0,0.05)',
+        }}>
+          <CardHeader 
+            title="Recent Activity" 
+            sx={{ 
+              '& .MuiCardHeader-title': { 
+                fontSize: '1.25rem',
+                fontWeight: 500,
+                color: theme.palette.mode === 'dark' ? '#fff' : 'text.primary'
+              } 
+            }}
+          />
           <CardContent>
             {renderRecentActivities()}
           </CardContent>
         </Card>
 
         <Box sx={{ mt: 4 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>Quick Actions</Typography>
+          <Typography 
+            variant="h6" 
+            sx={{ 
+              mb: 2,
+              color: theme.palette.mode === 'dark' ? '#fff' : 'text.primary'
+            }}
+          >
+            Quick Actions
+          </Typography>
           <Grid container spacing={2}>
             <Grid item xs={12} sm={6} md={3}>
               <Card 
                 sx={{ 
                   cursor: 'pointer',
                   '&:hover': { transform: 'translateY(-4px)' },
-                  transition: 'transform 0.2s'
+                  transition: 'transform 0.2s',
+                  background: theme.palette.mode === 'dark' 
+                    ? 'linear-gradient(to right, #1a1a1a, #2d2d2d)'
+                    : 'linear-gradient(to right, #ffffff, #f5f5f5)',
+                  boxShadow: theme.palette.mode === 'dark'
+                    ? '0 2px 4px rgba(0,0,0,0.2)'
+                    : '0 2px 4px rgba(0,0,0,0.05)',
                 }}
                 onClick={() => handleOpen()}
               >
                 <CardContent>
-                  <AddIcon color="primary" sx={{ fontSize: 40 }} />
-                  <Typography variant="h6">New Project</Typography>
+                  <AddIcon 
+                    color="primary" 
+                    sx={{ fontSize: 40 }} 
+                  />
+                  <Typography 
+                    variant="h6"
+                    sx={{ color: theme.palette.mode === 'dark' ? '#fff' : 'text.primary' }}
+                  >
+                    New Project
+                  </Typography>
                 </CardContent>
               </Card>
             </Grid>
@@ -777,13 +876,22 @@ export default function Dashboard() {
           </Grid>
         </Box>
 
-        <Card sx={{ mt: 4 }}>
+        <Card sx={{ 
+          mt: 4,
+          background: theme.palette.mode === 'dark' 
+            ? 'linear-gradient(to right, #1a1a1a, #2d2d2d)'
+            : 'linear-gradient(to right, #ffffff, #f5f5f5)',
+          boxShadow: theme.palette.mode === 'dark'
+            ? '0 2px 4px rgba(0,0,0,0.2)'
+            : '0 2px 4px rgba(0,0,0,0.05)',
+        }}>
           <CardHeader 
             title="Project Progress Overview" 
             sx={{ 
               '& .MuiCardHeader-title': { 
                 fontSize: '1.25rem',
-                fontWeight: 500 
+                fontWeight: 500,
+                color: theme.palette.mode === 'dark' ? '#fff' : 'text.primary'
               } 
             }}
           />

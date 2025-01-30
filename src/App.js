@@ -34,6 +34,8 @@ import { ActivityProvider } from './context/ActivityContext';
 import { ToastProvider } from './context/ToastContext';
 import { sessionManager } from './utils/sessionManager';
 import SessionWarningDialog from './components/SessionWarningDialog';
+import { SoundManager } from './utils/soundManager';
+import Settings from './components/Settings/Settings';
 
 const ProtectedRoute = ({ children, authRequired = true }) => {
   const { user, loading, logout } = useAuth();
@@ -115,6 +117,10 @@ function AppContent() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { loading } = useAuth();
   const isAuthPage = location.pathname === '/login' || location.pathname === '/sign_up';
+
+  useEffect(() => {
+    SoundManager.preloadSounds();
+  }, []);
 
   if (loading) {
     return <LoadingSpinner message="Setting up your workspace..." />;
@@ -224,7 +230,11 @@ function AppContent() {
               </PageTransition>
             </ProtectedRoute>
           } />
-          <Route path="/my-tasks" element={<MyTasks />} />
+          <Route path="/my-tasks" element={
+            <ProtectedRoute>
+              <MyTasks />
+            </ProtectedRoute>
+          } />
           <Route path="/create-task" element={
             <ProtectedRoute>
               <CreateTask />
@@ -233,6 +243,13 @@ function AppContent() {
           <Route path="/projects" element={
             <ProtectedRoute>
               <Projects />
+            </ProtectedRoute>
+          } />
+          <Route path="/settings" element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Settings />
+              </PageTransition>
             </ProtectedRoute>
           } />
         </Routes>

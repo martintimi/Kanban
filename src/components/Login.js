@@ -88,6 +88,7 @@ export default function Login() {
   const navigate = useNavigate();
   const { login, loginWithGoogle, loginWithGithub, loading, error, setError } = useAuth();
   const [isLoading, setLoading] = useState(false);
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -95,7 +96,6 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [formErrors, setFormErrors] = useState({});
   const theme = useTheme();
-  const { showToast } = useToast();
 
   const handleClickShowPassword = () => {
     setShowPassword(!showPassword);
@@ -143,12 +143,12 @@ export default function Login() {
 
     try {
       await login(formData.email, formData.password);
-      showToast('🎉 Welcome back! Successfully logged in!', 'success');
+      showToast('👋 Welcome back!', 'success');
     } catch (err) {
       console.error('Login error:', err);
       const errorMessages = {
         'auth/invalid-credential': '❌ Invalid email or password',
-        'auth/user-not-found': '🔍 No account found with this email',
+        'auth/user-not-found': '❌ No account found with this email',
         'auth/wrong-password': '❌ Invalid email or password',
         'auth/too-many-requests': '⚠️ Too many failed attempts. Please try again later',
         'auth/user-disabled': '🚫 This account has been disabled',
@@ -156,7 +156,7 @@ export default function Login() {
         'auth/network-request-failed': '🌐 Network error. Please check your connection'
       };
       
-      setError(errorMessages[err.code] || 'An error occurred during sign in');
+      showToast(errorMessages[err.code] || '❌ An error occurred during sign in', 'error');
     } finally {
       setLoading(false);
     }
