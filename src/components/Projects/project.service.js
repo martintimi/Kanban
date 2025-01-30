@@ -138,64 +138,99 @@ export class ProjectService {
       const newTask = {
         id: Date.now().toString(),
         ...taskData,
-        status: this.normalizeTaskStatus(taskData.status || 'To Do'),
+        status: taskData.status || 'To Do',
         assignee: taskData.assignee || null,
         priority: taskData.priority || 'medium',
         dueDate: taskData.dueDate || null,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        createdBy: taskData.createdBy || null,
-        subtasks: taskData.subtasks || [],
-        dependencies: taskData.dependencies || [],
-        timeTracking: {
-          estimate: taskData.timeEstimate || null,
-          logged: 0,
-          history: [],
-          ...taskData.timeTracking
-        },
-        checklist: taskData.checklist || [],
-        attachments: taskData.attachments || [],
-        watchers: taskData.watchers || [],
-        labels: taskData.labels || [],
-        progress: taskData.progress || 0,
-        startDate: taskData.startDate || null,
-        endDate: taskData.endDate || null,
-        blockedBy: taskData.blockedBy || [],
-        blocking: taskData.blocking || [],
-        customFields: taskData.customFields || {}
+        updatedAt: new Date().toISOString()
       };
 
+      // Update project with new task
       await updateDoc(projectRef, {
         tasks: [...tasks, newTask],
         updatedAt: new Date().toISOString()
       });
 
-      // Send notification if task is assigned
+      // Send notification to assignee if task is assigned
       if (taskData.assignee) {
         await NotificationService.sendTaskNotification(taskData.assignee, {
           title: 'New Task Assigned',
           body: `You have been assigned to task: ${taskData.name}`,
           type: 'task_assigned',
           projectId,
-          taskId: newTask.id,
-          from: taskData.createdBy || null
+          taskId: newTask.id
         });
       }
-
-      // Add activity for task creation
-      await this.addActivity(projectId, {
-        type: 'task_created',
-        entityType: 'task',
-        userId: taskData.createdBy?.id,
-        userName: taskData.createdBy?.name,
-        details: `Created task: ${taskData.name}`,
-        taskId: newTask.id,
-        taskName: newTask.name
-      });
 
       return newTask;
     } catch (error) {
       console.error('Error adding task:', error);
+      throw error;
+    }
+  }
+
+  static async assignTask(projectId, taskId, assigneeId) {
+    try {
+      // First verify the assignee exists
+      const userRef = doc(db, 'users', assigneeId);
+      const userDoc = await getDoc(userRef);
+      
+      if (!userDoc.exists()) {
+        throw new Error('Assignee user not found');
+      }
+
+      const projectRef = doc(db, 'projects', projectId);
+      const projectDoc = await getDoc(projectRef);
+      
+      if (!projectDoc.exists()) {
+        throw new Error('Project not found');
+      }
+
+      const project = projectDoc.data();
+      const tasks = project.tasks || [];
+      const members = project.members || [];
+
+      // Add assignee to project members if not already a member
+      if (!members.includes(assigneeId)) {
+        members.push(assigneeId);
+      }
+
+      const taskIndex = tasks.findIndex(t => t.id === taskId);
+      if (taskIndex === -1) {
+        throw new Error('Task not found');
+      }
+
+      // Update task assignment
+      tasks[taskIndex] = {
+        ...tasks[taskIndex],
+        assignee: assigneeId,
+        assigneeName: userDoc.data().fullName || userDoc.data().email,
+        updatedAt: new Date().toISOString()
+      };
+
+      // Update project with new task and members
+      await updateDoc(projectRef, {
+        tasks,
+        members,
+        updatedAt: new Date().toISOString()
+      });
+
+      // Send notification to assignee
+      await NotificationService.sendTaskNotification(assigneeId, {
+        title: 'New Task Assignment',
+        body: `You have been assigned to task: ${tasks[taskIndex].name}`,
+        type: 'task_assigned',
+        projectId,
+        taskId,
+        taskName: tasks[taskIndex].name,
+        priority: tasks[taskIndex].priority,
+        dueDate: tasks[taskIndex].dueDate
+      });
+
+      return tasks[taskIndex];
+    } catch (error) {
+      console.error('Error assigning task:', error);
       throw error;
     }
   }
@@ -576,6 +611,45 @@ export class ProjectService {
         return 'To Do';
       default:
         return 'To Do';
+    }
+  }
+
+  static async getAssignedTasks(userId) {
+    try {
+      if (!userId) {
+        throw new Error('User ID is required');
+      }
+
+      // Get all projects where the user is a member
+      const projectsRef = collection(db, 'projects');
+      const q = query(
+        projectsRef,
+        where('members', 'array-contains', userId)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const assignedTasks = [];
+
+      querySnapshot.docs.forEach(doc => {
+        const project = doc.data();
+        const projectTasks = project.tasks || [];
+        
+        // Filter tasks assigned to the user
+        const userTasks = projectTasks
+          .filter(task => task.assignee === userId)
+          .map(task => ({
+            ...task,
+            projectId: doc.id,
+            projectName: project.name
+          }));
+        
+        assignedTasks.push(...userTasks);
+      });
+
+      return assignedTasks;
+    } catch (error) {
+      console.error('Error getting assigned tasks:', error);
+      throw error;
     }
   }
 } 

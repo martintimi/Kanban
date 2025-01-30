@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { ProjectService } from '../components/Projects/project.service';
 import { db, messaging } from '../firebase/config';
+import { SoundManager } from '../utils/soundManager';
 
 export class NotificationService {
   static async subscribeToNotifications(userId, callback) {
@@ -45,15 +46,34 @@ export class NotificationService {
 
   static async sendTaskNotification(userId, notification) {
     try {
+      const userRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userRef);
+      
+      if (!userDoc.exists()) {
+        throw new Error('User not found');
+      }
+
+      // Get user's preferred notification sound
+      const preferredSound = userDoc.data()?.settings?.notificationSound || 'NOTIFICATION_1';
+
       // Add notification to user's notifications collection
-      const userNotificationsRef = collection(db, 'users', userId, 'notifications');
-      await addDoc(userNotificationsRef, {
+      const notificationsRef = collection(db, 'users', userId, 'notifications');
+      await addDoc(notificationsRef, {
         ...notification,
         read: false,
         createdAt: new Date().toISOString()
       });
-      
-      // Remove audio play from here since it should be handled on recipient's side
+
+      // Update user's unread notification count
+      const currentCount = userDoc.data()?.unreadNotifications || 0;
+      await updateDoc(userRef, {
+        unreadNotifications: currentCount + 1
+      });
+
+      // Play the user's preferred notification sound
+      await SoundManager.playNotification(preferredSound);
+
+      return true;
     } catch (error) {
       console.error('Error sending notification:', error);
       throw error;
@@ -94,8 +114,26 @@ export class NotificationService {
   }
 
   static playNotificationSound() {
-    const audio = new Audio('/notification.mp3');
-    return audio.play().catch(e => console.log('Audio play failed:', e));
+    try {
+      // Create audio context only when needed
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      // Set notification sound properties
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(440, audioContext.currentTime); // A4 note
+      gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+      
+      // Play sound
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.1); // Stop after 100ms
+    } catch (error) {
+      console.error('Error playing notification sound:', error);
+    }
   }
 
   static subscribeToUserNotifications(userId, callback) {
@@ -119,6 +157,22 @@ export class NotificationService {
       }));
       callback(notifications);
     });
+  }
+
+  static async getUserNotifications(userId) {
+    try {
+      const notificationsRef = collection(db, 'users', userId, 'notifications');
+      const q = query(notificationsRef, where('read', '==', false));
+      const querySnapshot = await getDocs(q);
+      
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    } catch (error) {
+      console.error('Error getting notifications:', error);
+      throw error;
+    }
   }
 }
 

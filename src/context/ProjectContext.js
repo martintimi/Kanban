@@ -4,37 +4,31 @@ import { useAuth } from './AuthContext';
 
 const ProjectContext = createContext(null);
 
-export const useProjects = () => {
-  const context = useContext(ProjectContext);
-  if (!context) {
-    throw new Error('useProjects must be used within a ProjectProvider');
-  }
-  return context;
-};
-
 export const ProjectProvider = ({ children }) => {
   const [projects, setProjects] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { user } = useAuth();
 
-  // Load projects when user changes
-  useEffect(() => {
-    const loadProjects = async () => {
-      if (!user?.uid) return;
-      
+  const fetchProjects = async () => {
+    if (!user?.uid) return;
+    
+    try {
       setLoading(true);
-      try {
-        const userProjects = await ProjectService.getUserProjects(user.uid);
-        setProjects(userProjects || []);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
+      const fetchedProjects = await ProjectService.getUserProjects(user.uid);
+      setProjects(fetchedProjects);
+    } catch (err) {
+      console.error('Error fetching projects:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    loadProjects();
+  useEffect(() => {
+    if (user?.uid) {
+      fetchProjects();
+    }
   }, [user]);
 
   const calculateProjectStats = (projectsList) => {
@@ -70,7 +64,6 @@ export const ProjectProvider = ({ children }) => {
         projectName: newProject.name
       });
 
-      // Return the created project
       return newProject;
     } catch (error) {
       console.error('Error creating project:', error);
@@ -104,20 +97,29 @@ export const ProjectProvider = ({ children }) => {
     }
   };
 
+  const value = {
+    projects,
+    setProjects,
+    loading,
+    error,
+    setError,
+    fetchProjects,
+    createProject,
+    updateProject,
+    deleteProject
+  };
+
   return (
-    <ProjectContext.Provider
-      value={{
-        projects,
-        loading,
-        error,
-        setError,
-        setProjects,
-        createProject,
-        updateProject,
-        deleteProject
-      }}
-    >
+    <ProjectContext.Provider value={value}>
       {children}
     </ProjectContext.Provider>
   );
+};
+
+export const useProjects = () => {
+  const context = useContext(ProjectContext);
+  if (!context) {
+    throw new Error('useProjects must be used within a ProjectProvider');
+  }
+  return context;
 }; 

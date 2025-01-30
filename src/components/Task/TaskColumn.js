@@ -52,7 +52,7 @@ import PeopleIcon from "@mui/icons-material/People";
 import { styled } from "@mui/material/styles";
 import CustomButton from "../CustomButton";
 import { motion, AnimatePresence } from 'framer-motion';
-import { useProjects } from '../Projects/ProjectContext';
+import { useProjects } from '../../context/ProjectContext';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { DatePicker } from '@mui/lab';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -1028,39 +1028,17 @@ const TaskColumn = () => {
   // Add task assignment handler
   const handleAssignTask = async (taskId, assigneeId) => {
     try {
-      const updatedTasks = tasks.map(task => {
-        if (task.id === taskId) {
-          const assignedUser = users.find(u => u.id === assigneeId);
-          const updatedTask = {
-            ...task,
-            assignee: assigneeId,
-            assigneeName: assignedUser?.name || assignedUser?.email,
-            updatedAt: new Date().toISOString()
-          };
-
-          // Send notification to assignee
-          if (assigneeId) {
-            NotificationService.notifyTaskAssignment(updatedTask, assigneeId);
-          }
-
-          return updatedTask;
-        }
-        return task;
-      });
-
-      await updateProject(currentProject.id, {
-        ...currentProject,
-        tasks: updatedTasks
-      });
-
-      setTasks(updatedTasks);
-      setSnackbar({
-        open: true,
-        message: 'Task assigned successfully',
-        severity: 'success'
-      });
+      // Call the ProjectService to assign the task
+      await ProjectService.assignTask(projectId, taskId, assigneeId);
+      
+      // Show success message
+      showToast('Task assigned successfully', 'success');
+      
+      // Reload tasks to get updated data
+      await loadTasks();
     } catch (error) {
-      setError('Failed to assign task: ' + error.message);
+      console.error('Error assigning task:', error);
+      showToast('Failed to assign task: ' + error.message, 'error');
     }
   };
 

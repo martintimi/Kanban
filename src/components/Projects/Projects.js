@@ -213,7 +213,7 @@ const Projects = () => {
   if (loading) return <LinearProgress />;
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 5 }}>
       {/* Analytics at the top */}
       <ProjectAnalytics projects={projects} />
 
