@@ -5,9 +5,13 @@ import {
   where, 
   getDocs,
   doc,
-  updateDoc 
+  updateDoc,
+  addDoc,
+  orderBy,
+  onSnapshot,
+  getDoc
 } from 'firebase/firestore';
-import { ProjectService } from './project.service';
+import { ProjectService } from '../components/Projects/project.service';
 import { db, messaging } from '../firebase/config';
 
 export class NotificationService {
@@ -41,109 +45,18 @@ export class NotificationService {
 
   static async sendTaskNotification(userId, notification) {
     try {
-      const response = await fetch('/api/notifications', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId,
-          notification
-        })
+      // Add notification to user's notifications collection
+      const userNotificationsRef = collection(db, 'users', userId, 'notifications');
+      await addDoc(userNotificationsRef, {
+        ...notification,
+        read: false,
+        createdAt: new Date().toISOString()
       });
-      return response.json();
+      
+      // Remove audio play from here since it should be handled on recipient's side
     } catch (error) {
       console.error('Error sending notification:', error);
-    }
-  }
-
-  static async checkDueDates() {
-    try {
-      // Get all active projects and their tasks
-      const projects = await ProjectService.getProjects();
-      const allTasks = projects.flatMap(project => 
-        (project.tasks || []).map(task => ({
-          ...task,
-          projectId: project.id
-        }))
-      );
-      
-      const today = new Date();
-      
-      allTasks.forEach(task => {
-        const dueDate = new Date(task.dueDate);
-        const daysUntilDue = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
-        
-        if (daysUntilDue <= 3 && daysUntilDue > 0) {
-          this.sendTaskNotification(task.assignee, {
-            title: 'Task Due Soon',
-            body: `Task "${task.name}" is due in ${daysUntilDue} days`,
-            type: 'due_date',
-            taskId: task.id
-          });
-        }
-      });
-    } catch (error) {
-      console.error('Error checking due dates:', error);
-    }
-  }
-
-  static async getProjectManagers(projectId) {
-    try {
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('role', '==', 'project_manager'));
-      const querySnapshot = await getDocs(q);
-      
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-    } catch (error) {
-      console.error('Error getting project managers:', error);
-      return [];
-    }
-  }
-
-  static async notifyTaskComplete(task) {
-    try {
-      const projectManagers = await this.getProjectManagers(task.projectId);
-      
-      projectManagers.forEach(manager => {
-        this.sendTaskNotification(manager.id, {
-          title: 'Task Completed',
-          body: `Task "${task.name}" has been marked as complete by ${task.assignee}`,
-          type: 'task_complete',
-          taskId: task.id
-        });
-      });
-    } catch (error) {
-      console.error('Error notifying task completion:', error);
-    }
-  }
-
-  static async notifyTaskAssignment(task, assigneeId) {
-    try {
-      await this.sendTaskNotification(assigneeId, {
-        title: 'New Task Assignment',
-        body: `You have been assigned to task: ${task.name}`,
-        type: 'task_assigned',
-        taskId: task.id,
-        projectId: task.projectId
-      });
-
-      // Also send email notification
-      await this.sendEmailNotification(assigneeId, {
-        subject: 'New Task Assignment',
-        body: `
-          You have been assigned a new task:
-          Task: ${task.name}
-          Due Date: ${new Date(task.dueDate).toLocaleDateString()}
-          Priority: ${task.priority}
-          Description: ${task.description}
-        `
-      });
-    } catch (error) {
-      console.error('Error notifying task assignment:', error);
+      throw error;
     }
   }
 
@@ -156,6 +69,56 @@ export class NotificationService {
     } catch (error) {
       console.error('Error saving user token:', error);
     }
+  }
+
+  static async markAsRead(userId, notificationId) {
+    try {
+      const notificationRef = doc(db, 'users', userId, 'notifications', notificationId);
+      await updateDoc(notificationRef, {
+        read: true
+      });
+
+      // Update unread count
+      const userRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userRef);
+      const currentCount = userDoc.data()?.unreadNotifications || 0;
+      if (currentCount > 0) {
+        await updateDoc(userRef, {
+          unreadNotifications: currentCount - 1
+        });
+      }
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      throw error;
+    }
+  }
+
+  static playNotificationSound() {
+    const audio = new Audio('/notification.mp3');
+    return audio.play().catch(e => console.log('Audio play failed:', e));
+  }
+
+  static subscribeToUserNotifications(userId, callback) {
+    const userNotificationsRef = collection(db, 'users', userId, 'notifications');
+    const q = query(userNotificationsRef, orderBy('createdAt', 'desc'));
+    
+    return onSnapshot(q, (snapshot) => {
+      // Play sound when new notifications arrive
+      const changes = snapshot.docChanges();
+      const hasNewNotification = changes.some(change => change.type === 'added' && 
+        // Only play for truly new notifications (not just initial load)
+        new Date(change.doc.data().createdAt).getTime() > Date.now() - 1000);
+      
+      if (hasNewNotification) {
+        this.playNotificationSound();
+      }
+
+      const notifications = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      callback(notifications);
+    });
   }
 }
 

@@ -18,14 +18,13 @@ import {
   Breadcrumbs,
   Link,
   CircularProgress,
-  Alert,
+  Alert as MuiAlert,
   Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
   DialogTitle,
   Snackbar,
-  Alert as MuiAlert,
   Grid,
   Card,
   CardContent,
@@ -36,6 +35,7 @@ import {
   InputLabel,
   Select,
   Chip,
+  ListItemIcon,
 } from "@mui/material";
 import {
   Timeline,
@@ -56,11 +56,27 @@ import WarningIcon from "@mui/icons-material/Warning";
 import SearchIcon from "@mui/icons-material/Search";
 import { BarChart, XAxis, YAxis, Tooltip, Legend, Bar, ResponsiveContainer } from 'recharts';
 import { useTheme } from '@mui/material/styles';
-import { format, formatDistanceToNowStrict as formatDistanceToNow } from 'date-fns';
+import format from 'date-fns/format';
+import formatDistanceToNow from 'date-fns/formatDistanceToNowStrict';
+import DeleteIcon from "@mui/icons-material/Delete";
+import { ProjectService } from "./Projects/project.service";
+import { useActivities } from "../context/ActivityContext";
+import { useAuth } from "../context/AuthContext";
+import { useToast } from '../context/ToastContext';
+import ProjectForm from './Projects/ProjectForm';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { projects, loading, error, createProject, updateProject, deleteProject, recentActivities } = useProjects();
+  const { 
+    projects, 
+    loading, 
+    error, 
+    createProject, 
+    updateProject, 
+    deleteProject, 
+    recentActivities,
+    setProjects
+  } = useProjects();
   const [open, setOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
@@ -68,14 +84,14 @@ export default function Dashboard() {
   const [formData, setFormData] = useState({
     name: "",
     description: "",
+    category: '',
+    priority: 'medium',
+    deadline: '',
+    status: 'active'
   });
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editConfirmOpen, setEditConfirmOpen] = useState(false);
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: '',
-    severity: 'success' // 'success' | 'error' | 'info' | 'warning'
-  });
+  const { showToast } = useToast();
   const [filterStatus, setFilterStatus] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
   const [projectProgressData, setProjectProgressData] = useState([
@@ -89,9 +105,11 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [priority, setPriority] = useState('all');
   const [dateRange, setDateRange] = useState('all');
+  const { refreshActivities } = useActivities();
+  const { user } = useAuth();
 
   const handleOpen = () => {
-    setFormData({ name: "", description: "" });
+    setFormData({ name: "", description: "", category: '', priority: 'medium', deadline: '', status: 'active' });
     setEditMode(false);
     setOpen(true);
   };
@@ -102,15 +120,7 @@ export default function Dashboard() {
   };
 
   const showNotification = (message, severity = 'success') => {
-    setSnackbar({
-      open: true,
-      message,
-      severity
-    });
-  };
-
-  const handleSnackbarClose = () => {
-    setSnackbar(prev => ({ ...prev, open: false }));
+    showToast(message, severity);
   };
 
   const handleSubmit = async (e) => {
@@ -118,15 +128,15 @@ export default function Dashboard() {
     try {
       if (editMode && selectedProject) {
         await updateProject(selectedProject.id, formData);
-        showNotification('Project updated successfully');
+        showToast('Project updated successfully', 'success');
       } else {
         await createProject(formData);
-        showNotification('Project created successfully');
+        showToast('Project created successfully', 'success');
       }
       handleClose();
     } catch (err) {
       console.error("Error submitting project:", err);
-      showNotification(err.message, 'error');
+      showToast(err.message, 'error');
     }
   };
 
@@ -134,6 +144,10 @@ export default function Dashboard() {
     setFormData({
       name: project.name,
       description: project.description,
+      category: project.category,
+      priority: project.priority,
+      deadline: project.deadline,
+      status: project.status
     });
     setSelectedProject(project);
     setEditMode(true);
@@ -152,26 +166,37 @@ export default function Dashboard() {
     setEditMode(false);
   };
 
-  const handleDelete = async (projectId) => {
-    setDeleteConfirmOpen(true);
-    setAnchorEl(null);
-  };
-
-  const handleConfirmDelete = async () => {
+  const handleDeleteProject = async () => {
     try {
-      await deleteProject(selectedProject?.id);
+      if (!selectedProject?.id) {
+        showToast('No project selected', 'error');
+        return;
+      }
+
+      await ProjectService.addActivity(selectedProject.id, {
+        type: 'project_deleted',
+        entityType: 'project',
+        userId: user.uid,
+        userName: user.name || user.email,
+        details: `Deleted project: ${selectedProject.name}`,
+        projectName: selectedProject.name
+      });
+
+      await ProjectService.deleteProject(selectedProject.id);
+      setProjects(prev => prev.filter(p => p.id !== selectedProject.id));
       setDeleteConfirmOpen(false);
+      showToast('Project deleted successfully', 'success');
+      await refreshActivities();
+    } catch (error) {
+      showToast(error.message || 'Failed to delete project', 'error');
+    } finally {
       setSelectedProject(null);
-      showNotification('Project deleted successfully');
-    } catch (err) {
-      console.error("Error deleting project:", err);
-      showNotification(err.message, 'error');
     }
   };
 
-  const handleCancelDelete = () => {
-    setDeleteConfirmOpen(false);
-    setSelectedProject(null);
+  const handleOpenDeleteDialog = (project) => {
+    setSelectedProject(project);
+    setDeleteConfirmOpen(true);
   };
 
   const handleMenuClick = (event, project) => {
@@ -379,6 +404,25 @@ export default function Dashboard() {
     }
   ];
 
+  const getStatusChip = (status) => {
+    return (
+      <Chip
+        label={status || 'active'}
+        size="small"
+        sx={{
+          color: status === 'active' ? '#10B981' : '#EF4444',
+          backgroundColor: status === 'active' 
+            ? 'rgba(16, 185, 129, 0.1)' 
+            : 'rgba(239, 68, 68, 0.1)',
+          borderRadius: '6px',
+          fontWeight: 500,
+          textTransform: 'capitalize',
+          border: 'none'
+        }}
+      />
+    );
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
@@ -406,9 +450,9 @@ export default function Dashboard() {
         </Breadcrumbs>
 
         {error && (
-          <Alert severity="error" sx={{ mb: 3 }}>
+          <MuiAlert severity="error" sx={{ mb: 3 }}>
             {error}
-          </Alert>
+          </MuiAlert>
         )}
 
         <Grid container spacing={3} sx={{ mb: 4 }}>
@@ -547,19 +591,7 @@ export default function Dashboard() {
                       <TableCell>{project.name}</TableCell>
                       <TableCell>{project.description}</TableCell>
                       <TableCell>
-                        <Chip 
-                          label={project.status}
-                          size="small"
-                          sx={{
-                            backgroundColor: project.status === 'active' 
-                              ? 'success.light'
-                              : project.status === 'completed'
-                              ? 'primary.light'
-                              : 'error.light',
-                            color: '#fff',
-                            fontWeight: 500,
-                          }}
-                        />
+                        {getStatusChip(project.status)}
                       </TableCell>
                       <TableCell>
                         {new Date(project.createdAt).toLocaleDateString()}
@@ -599,10 +631,13 @@ export default function Dashboard() {
             Edit Project
           </MenuItem>
           <MenuItem
-            onClick={() => handleDelete(selectedProject?.id)}
+            onClick={() => handleOpenDeleteDialog(selectedProject)}
             sx={{ color: "error.main" }}
           >
-            Delete Project
+            <ListItemIcon>
+              <DeleteIcon fontSize="small" />
+            </ListItemIcon>
+            Delete
           </MenuItem>
         </Menu>
 
@@ -627,23 +662,12 @@ export default function Dashboard() {
               {editMode ? "Update Project" : "Create New Project"}
             </Typography>
             <form onSubmit={handleSubmit}>
-              <TextField
-                fullWidth
-                label="Project Name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                required
-                sx={{ mb: 2 }}
-              />
-              <TextField
-                fullWidth
-                label="Description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                multiline
-                rows={4}
-                sx={{ mb: 3 }}
-              />
+              <Box sx={{ pt: 2 }}>
+                <ProjectForm 
+                  formData={formData}
+                  setFormData={setFormData}
+                />
+              </Box>
               <Box sx={{ display: "flex", justifyContent: "space-between", mt: 3 }}>
                 <CustomButton
                   label="Close"
@@ -664,7 +688,7 @@ export default function Dashboard() {
 
         <Dialog
           open={deleteConfirmOpen}
-          onClose={handleCancelDelete}
+          onClose={() => setDeleteConfirmOpen(false)}
           PaperProps={{
             sx: {
               backgroundColor: 'background.paper',
@@ -681,7 +705,7 @@ export default function Dashboard() {
           <DialogActions>
             <CustomButton
               label="Delete"
-              onClick={handleConfirmDelete}
+              onClick={handleDeleteProject}
               color="error"
               variant="text"
               sx={{ color: "red" }}
@@ -689,7 +713,7 @@ export default function Dashboard() {
             <Box sx={{ flex: '1 0 0' }} />
             <CustomButton
               label="Cancel"
-              onClick={handleCancelDelete}
+              onClick={() => setDeleteConfirmOpen(false)}
               color="primary"
               variant="text"
             />
@@ -723,22 +747,6 @@ export default function Dashboard() {
             />
           </DialogActions>
         </Dialog>
-
-        <Snackbar 
-          open={snackbar.open} 
-          autoHideDuration={6000} 
-          onClose={handleSnackbarClose}
-          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        >
-          <MuiAlert 
-            elevation={6} 
-            variant="filled" 
-            onClose={handleSnackbarClose} 
-            severity={snackbar.severity}
-          >
-            {snackbar.message}
-          </MuiAlert>
-        </Snackbar>
 
         <Card sx={{ mt: 4 }}>
           <CardHeader title="Recent Activity" />

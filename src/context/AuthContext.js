@@ -18,6 +18,8 @@ import {
 import { initializeApp } from 'firebase/app';
 import { AUTH_CONFIG } from '../config/auth.config';
 import { db } from '../firebase/config';
+import { useNavigate } from 'react-router-dom';
+import { sessionManager } from '../utils/sessionManager';
 
 // Initialize Firebase
 const app = initializeApp(AUTH_CONFIG.firebase);
@@ -35,13 +37,10 @@ export const AuthProvider = ({ children }) => {
     PROJECT_MANAGER: 'project_manager'
   };
 
-  const [user, setUser] = useState({
-    uid: null,
-    email: null,
-    role: null
-  });
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -65,6 +64,9 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('user');
       }
       setLoading(false);
+      if (!firebaseUser) {
+        sessionManager.clearTimer();
+      }
     });
 
     return () => unsubscribe();
@@ -117,10 +119,12 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await signOut(auth);
+      sessionManager.clearTimer();
       setUser(null);
       localStorage.removeItem('user');
-    } catch (err) {
-      setError(err.message);
+      navigate('/login');
+    } catch (error) {
+      console.error('Error logging out:', error);
     }
   };
 
@@ -168,20 +172,23 @@ export const AuthProvider = ({ children }) => {
       
       // Get user data including role from Firestore
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+      if (!userDoc.exists()) {
+        throw new Error('User data not found');
+      }
+      
       const userData = {
         uid: userCredential.user.uid,
         email: userCredential.user.email,
         name: userCredential.user.displayName,
         photoURL: userCredential.user.photoURL,
-        role: userDoc.data()?.role || 'developer' // Get role from Firestore
+        role: userDoc.data()?.role || 'developer'
       };
       
       setUser(userData);
       localStorage.setItem('user', JSON.stringify(userData));
-      return userData;
+      navigate('/dashboard');
     } catch (error) {
       console.error('Login error:', error);
-      setError(error.message);
       throw error;
     } finally {
       setLoading(false);

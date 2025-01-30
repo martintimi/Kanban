@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createTheme, ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import './App.css';
@@ -7,8 +7,8 @@ import SignUp from "./components/SignUp";
 import Dashboard from './components/Dashboard';
 import SideNav from './components/SideNav';
 import 'bootstrap/dist/css/bootstrap.min.css';
-import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import TaskColumn from './components/TaskColumn';
+import { BrowserRouter as Router, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
+import TaskColumn from './components/Task/TaskColumn';
 import IconButton from '@mui/material/IconButton';
 import MenuIcon from '@mui/icons-material/Menu';
 import Drawer from '@mui/material/Drawer';
@@ -26,25 +26,88 @@ import MenuItem from '@mui/material/MenuItem';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import Typography from '@mui/material/Typography';
-import { useNavigate } from 'react-router-dom';
 import TopNav from './components/TopNav';
-import MyTasks from './components/MyTasks';
-import CreateTask from './components/CreateTask';
-import Projects from './components/Projects';
+import MyTasks from './components/Task/MyTasks';
+import CreateTask from './components/Task/CreateTask';
+import Projects from './components/Projects/Projects';
 import { ActivityProvider } from './context/ActivityContext';
+import { ToastProvider } from './context/ToastContext';
+import { sessionManager } from './utils/sessionManager';
+import SessionWarningDialog from './components/SessionWarningDialog';
 
-const ProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
+const ProtectedRoute = ({ children, authRequired = true }) => {
+  const { user, loading, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [showWarning, setShowWarning] = useState(false);
   
+  useEffect(() => {
+    // Handle session timeout
+    const handleInactivity = () => {
+      setShowWarning(false);
+      logout();
+      navigate('/login');
+    };
+
+    const handleWarning = () => {
+      setShowWarning(true);
+    };
+
+    const handleActivity = () => {
+      sessionManager.resetTimer(handleInactivity, handleWarning);
+    };
+
+    // Set up event listeners for user activity
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
+    events.forEach(event => {
+      document.addEventListener(event, handleActivity);
+    });
+
+    // Initialize session timer
+    sessionManager.resetTimer(handleInactivity, handleWarning);
+
+    return () => {
+      events.forEach(event => {
+        document.removeEventListener(event, handleActivity);
+      });
+      sessionManager.clearTimer();
+    };
+  }, [logout, navigate]);
+  
+  const handleContinueSession = () => {
+    setShowWarning(false);
+    sessionManager.extendSession();
+  };
+
+  const handleLogoutNow = () => {
+    setShowWarning(false);
+    logout();
+    navigate('/login');
+  };
+
   if (loading) {
     return <LoadingSpinner message="Setting up your workspace..." />;
   }
   
-  if (!user) {
+  if (authRequired && !user) {
     return <Navigate to="/login" />;
   }
   
-  return children;
+  // Redirect to dashboard if user is logged in and tries to access auth pages
+  if (!authRequired && user) {
+    return <Navigate to="/dashboard" state={{ from: location }} replace />;
+  }
+  
+  return (
+    <>
+      {children}
+      <SessionWarningDialog
+        open={showWarning}
+        onContinue={handleContinueSession}
+        onLogout={handleLogoutNow}
+      />
+    </>
+  );
 };
 
 function AppContent() {
@@ -134,14 +197,18 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<Navigate to="/login" />} />
           <Route path="/login" element={
-            <PageTransition>
-              <Login />
-            </PageTransition>
+            <ProtectedRoute authRequired={false}>
+              <PageTransition>
+                <Login />
+              </PageTransition>
+            </ProtectedRoute>
           } />
           <Route path="/sign_up" element={
-            <PageTransition>
-              <SignUp />
-            </PageTransition>
+            <ProtectedRoute authRequired={false}>
+              <PageTransition>
+                <SignUp />
+              </PageTransition>
+            </ProtectedRoute>
           } />
           <Route path="/dashboard" element={
             <ProtectedRoute>
@@ -176,17 +243,19 @@ function AppContent() {
 
 function App() {
   return (
-    <Router>
-      <AuthProvider>
-        <ThemeProvider>
-          <ProjectProvider>
-            <ActivityProvider>
-              <AppWithTheme />
-            </ActivityProvider>
-          </ProjectProvider>
-        </ThemeProvider>
-      </AuthProvider>
-    </Router>
+    <ToastProvider>
+      <Router>
+        <AuthProvider>
+          <ThemeProvider>
+            <ProjectProvider>
+              <ActivityProvider>
+                <AppWithTheme />
+              </ActivityProvider>
+            </ProjectProvider>
+          </ThemeProvider>
+        </AuthProvider>
+      </Router>
+    </ToastProvider>
   );
 }
 
