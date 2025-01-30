@@ -16,10 +16,11 @@ import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
 import ListItemText from '@mui/material/ListItemText';
 import ListItemAvatar from '@mui/material/ListItemAvatar';
-import { format } from 'date-fns';
+import format from 'date-fns/format';
 import { subscribeToNotifications } from '../services/notification.service';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import NotificationBell from './NotificationBell';
 
 const TopNav = () => {
   const { darkMode, toggleTheme } = useTheme();
@@ -183,22 +184,12 @@ const TopNav = () => {
           alignItems: 'center', 
           gap: 2,
         }}>
-          <IconButton
-            color="inherit"
-            onClick={handleNotificationClick}
-            sx={{
-              '&:hover': { transform: 'scale(1.1)' },
-              transition: 'transform 0.2s',
-            }}
-          >
-            <Badge badgeContent={unreadCount} color="error">
-              <NotificationsIcon />
-            </Badge>
-          </IconButton>
+          <NotificationBell />
 
           <IconButton 
+            sx={{ ml: 1 }} 
             onClick={toggleTheme} 
-            sx={{ color: 'inherit' }}
+            color="inherit"
           >
             {darkMode ? <Brightness7Icon /> : <Brightness4Icon />}
           </IconButton>

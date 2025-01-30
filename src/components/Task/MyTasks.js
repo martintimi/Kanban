@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { UserService } from '../services/user.service';
-import { useAuth } from '../context/AuthContext';
+import { UserService } from '../../services/user.service';
+import { useAuth } from '../../context/AuthContext';
 import {
   Box,
   Card,
@@ -18,7 +18,7 @@ import {
 import AssignmentLateIcon from '@mui/icons-material/AssignmentLate';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import SortIcon from '@mui/icons-material/Sort';
-import EmptyState from './EmptyState'; // We'll create this next
+import EmptyState from '../EmptyState'; // We'll create this next
 
 const MyTasks = () => {
   const { user } = useAuth();
