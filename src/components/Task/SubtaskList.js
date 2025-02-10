@@ -16,8 +16,9 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { ProjectService } from '../Projects/project.service';
+import { ProjectService } from '../../services/project.service';
 import { useAuth } from '../../context/AuthContext';
+import { TaskService } from '../../services/TaskService';
 
 const SubtaskList = ({ projectId, taskId, subtasks, onUpdate }) => {
   const { user } = useAuth();

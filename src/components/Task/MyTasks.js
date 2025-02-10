@@ -1,194 +1,144 @@
 import React, { useState, useEffect } from 'react';
-import { UserService } from '../../services/user.service';
+import { Box, Typography, Grid, Card, CardContent, Chip } from '@mui/material';
+import { LoadingButton } from '@mui/lab';
 import { useAuth } from '../../context/AuthContext';
-import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  Chip,
-  LinearProgress,
-  Grid,
-  TextField,
-  MenuItem,
-  Button,
-  IconButton,
-  Tooltip,
-} from '@mui/material';
-import AssignmentLateIcon from '@mui/icons-material/AssignmentLate';
-import FilterListIcon from '@mui/icons-material/FilterList';
-import SortIcon from '@mui/icons-material/Sort';
-import EmptyState from '../EmptyState'; // We'll create this next
+import { ProjectService } from '../../services/project.service';
+import { TaskService } from '../../services/TaskService';
+import { useToast } from '../../context/ToastContext';
+import LoadingSpinner from '../LoadingSpinner';
 
 const MyTasks = () => {
-  const { user } = useAuth();
-  const [myTasks, setMyTasks] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('dueDate');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [updatingTaskId, setUpdatingTaskId] = useState(null);
+  const { user } = useAuth();
+  const { showToast } = useToast();
+
+  const loadTasks = async () => {
+    if (!user?.uid) return;
+    
+    try {
+      setLoading(true);
+      const projects = await ProjectService.getUserProjects(user.uid);
+      
+      const assignedTasks = [];
+      projects.forEach(project => {
+        const projectTasks = project.tasks || [];
+        projectTasks.forEach(task => {
+          if (task.assignee === user.uid) {
+            assignedTasks.push({
+              ...task,
+              projectId: project.id,
+              projectName: project.name
+            });
+          }
+        });
+      });
+
+      setTasks(assignedTasks);
+    } catch (error) {
+      console.error('Error loading tasks:', error);
+      showToast('Failed to load tasks', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadMyTasks = async () => {
-      if (user?.uid) {
-        const tasks = await UserService.getUserTasks(user.uid);
-        setMyTasks(tasks);
-        setLoading(false);
-      }
-    };
-    loadMyTasks();
+    loadTasks();
   }, [user]);
 
-  const filteredTasks = myTasks
-    .filter(task => {
-      if (filter === 'all') return true;
-      return task.status === filter;
-    })
-    .filter(task => 
-      task.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      task.description.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'dueDate':
-          return new Date(a.dueDate) - new Date(b.dueDate);
-        case 'priority':
-          return b.priority.localeCompare(a.priority);
-        case 'status':
-          return a.status.localeCompare(b.status);
-        default:
-          return 0;
+  const handleUpdateStatus = async (taskId, projectId, newStatus) => {
+    try {
+      setUpdatingTaskId(taskId);
+      
+      // Get the project first
+      const project = await ProjectService.getProject(projectId);
+      if (!project) {
+        throw new Error('Project not found');
       }
-    });
 
-  if (loading) return <LinearProgress />;
+      // Find the task in the project
+      const task = project.tasks.find(t => t.id === taskId);
+      if (!task) {
+        throw new Error('Task not found');
+      }
+
+      // Update the task status
+      await ProjectService.updateTaskStatus(projectId, taskId, newStatus);
+      
+      showToast(`Task status updated to ${newStatus}`, 'success');
+      await loadTasks(); // Reload tasks after update
+    } catch (error) {
+      console.error('Error updating task:', error);
+      showToast('Failed to update task status', 'error');
+    } finally {
+      setUpdatingTaskId(null);
+    }
+  };
+
+  if (loading) return <LoadingSpinner />;
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          My Tasks
-        </Typography>
-        <Typography color="text.secondary">
-          Manage and track your assigned tasks
-        </Typography>
-      </Box>
+      <Typography variant="h4" gutterBottom>
+        My Tasks
+      </Typography>
 
-      {/* Filters and Search */}
-      <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-        <TextField
-          size="small"
-          placeholder="Search tasks..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          sx={{ flexGrow: 1 }}
-        />
-        <TextField
-          select
-          size="small"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          sx={{ minWidth: 120 }}
-          InputProps={{
-            startAdornment: <FilterListIcon sx={{ mr: 1 }} />
-          }}
-        >
-          <MenuItem value="all">All Status</MenuItem>
-          <MenuItem value="To Do">To Do</MenuItem>
-          <MenuItem value="In Progress">In Progress</MenuItem>
-          <MenuItem value="Done">Done</MenuItem>
-        </TextField>
-        <TextField
-          select
-          size="small"
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value)}
-          sx={{ minWidth: 120 }}
-          InputProps={{
-            startAdornment: <SortIcon sx={{ mr: 1 }} />
-          }}
-        >
-          <MenuItem value="dueDate">Due Date</MenuItem>
-          <MenuItem value="priority">Priority</MenuItem>
-          <MenuItem value="status">Status</MenuItem>
-        </TextField>
-      </Box>
-
-      {/* Tasks Grid */}
-      {filteredTasks.length === 0 ? (
-        <EmptyState 
-          icon={<AssignmentLateIcon sx={{ fontSize: 60 }} />}
-          title="No tasks found"
-          description={
-            searchTerm 
-              ? "No tasks match your search criteria" 
-              : "You don't have any tasks assigned yet"
-          }
-          action={
-            <Button 
-              variant="contained" 
-              onClick={() => {
-                setSearchTerm('');
-                setFilter('all');
-              }}
-            >
-              Clear Filters
-            </Button>
-          }
-        />
+      {tasks.length === 0 ? (
+        <Typography color="text.secondary">No tasks assigned to you yet.</Typography>
       ) : (
-        <Grid container spacing={2}>
-          {filteredTasks.map(task => (
-            <Grid item xs={12} md={6} lg={4} key={task.id}>
-              <Card 
-                sx={{ 
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  transition: 'transform 0.2s',
-                  '&:hover': {
-                    transform: 'translateY(-4px)'
-                  }
-                }}
-              >
+        <Grid container spacing={3}>
+          {tasks.map(task => (
+            <Grid item xs={12} sm={6} md={4} key={task.id}>
+              <Card>
                 <CardContent>
                   <Typography variant="h6" gutterBottom>
                     {task.name}
                   </Typography>
+                  
                   <Typography color="text.secondary" gutterBottom>
                     Project: {task.projectName}
                   </Typography>
-                  <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    <Chip 
-                      label={task.status} 
+                  
+                  <Typography variant="body2" paragraph>
+                    {task.description}
+                  </Typography>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Chip
+                      label={task.status || 'To Do'}
                       color={
                         task.status === 'Done' ? 'success' :
-                        task.status === 'In Progress' ? 'warning' : 
+                        task.status === 'In Progress' ? 'warning' :
                         'default'
                       }
                       size="small"
-                    />
-                    <Chip
-                      label={`Due: ${new Date(task.dueDate).toLocaleDateString()}`}
-                      size="small"
-                      color={
-                        new Date(task.dueDate) < new Date() ? 'error' : 'default'
-                      }
-                    />
-                    <Chip
-                      label={task.priority}
-                      size="small"
-                      color={
-                        task.priority === 'high' ? 'error' :
-                        task.priority === 'medium' ? 'warning' :
-                        'default'
-                      }
                     />
                   </Box>
+
                   <Box sx={{ mt: 2 }}>
-                    <Typography variant="body2">
-                      {task.description}
-                    </Typography>
+                    {(!task.status || task.status === 'To Do') && (
+                      <LoadingButton
+                        variant="contained"
+                        color="primary"
+                        onClick={() => handleUpdateStatus(task.id, task.projectId, 'In Progress')}
+                        loading={updatingTaskId === task.id}
+                      >
+                        Start Working
+                      </LoadingButton>
+                    )}
+
+                    {task.status === 'In Progress' && (
+                      <LoadingButton
+                        variant="contained"
+                        color="success"
+                        onClick={() => handleUpdateStatus(task.id, task.projectId, 'Done')}
+                        loading={updatingTaskId === task.id}
+                      >
+                        Mark as Complete
+                      </LoadingButton>
+                    )}
                   </Box>
                 </CardContent>
               </Card>

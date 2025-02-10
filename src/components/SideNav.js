@@ -5,21 +5,24 @@ import {
   ListItem, 
   ListItemIcon, 
   ListItemText,
+  Tooltip,
   Divider,
   Typography,
   Badge
 } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
-import DashboardIcon from '@mui/icons-material/Dashboard';
-import AssignmentIcon from '@mui/icons-material/Assignment';
-import PeopleIcon from '@mui/icons-material/People';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import SettingsIcon from '@mui/icons-material/Settings';
+import { 
+  Dashboard as DashboardIcon,
+  Assignment as TaskIcon,
+  Add as AddIcon,
+  Settings as SettingsIcon,
+  People as PeopleIcon,
+  CalendarToday as CalendarIcon,
+  Assessment as ResourceIcon,
+  Email as EmailIcon,
+  Description as DraftsIcon
+} from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
-import AddTaskIcon from '@mui/icons-material/AddTask';
-import TimelineIcon from '@mui/icons-material/Timeline';
-import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
-import { FaTachometerAlt, FaStar, FaEnvelope, FaDraftingCompass } from 'react-icons/fa';
 
 const SideNav = ({ onClose }) => {
   const navigate = useNavigate();
@@ -34,27 +37,54 @@ const SideNav = ({ onClose }) => {
   const isActive = (path) => location.pathname === path;
 
   const menuItems = [
-    { text: 'Dashboard', icon: <FaTachometerAlt size={20} />, path: '/dashboard' },
-    { text: 'Projects', icon: <FaStar size={20} />, path: '/projects' },
-    
-    // Developer Items
-    ...(user?.role === 'developer' ? [
-      { text: 'My Tasks', icon: <FormatListBulletedIcon />, path: '/my-tasks' },
-      { text: 'Create Task', icon: <AddTaskIcon />, path: '/create-task' },
-      { text: 'My Progress', icon: <TimelineIcon />, path: '/my-progress' },
-    ] : []),
-
-    // Admin/PM Items
-    ...(user?.role === 'admin' || user?.role === 'project_manager' ? [
-      { text: 'Team', icon: <PeopleIcon />, path: '/team' },
-      { text: 'Analytics', icon: <BarChartIcon />, path: '/analytics' },
-    ] : []),
-
-    // Common Items
-    { text: 'Send email', icon: <FaEnvelope size={20} />, path: '/email' },
-    { text: 'Drafts', icon: <FaDraftingCompass size={20} />, path: '/drafts' },
-    { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
+    {
+      title: 'Dashboard',
+      path: '/dashboard',
+      icon: <DashboardIcon />,
+      roles: ['admin', 'project_manager', 'developer']
+    },
+    {
+      title: 'Projects',
+      path: '/projects',
+      icon: <TaskIcon />,
+      roles: ['admin', 'project_manager']
+    },
+    {
+      title: 'My Tasks',
+      path: '/my-tasks',
+      icon: <TaskIcon />,
+      roles: ['developer']
+    },
+    {
+      title: 'Create Task',
+      path: '/create-task',
+      icon: <AddIcon />,
+      roles: ['admin', 'project_manager']
+    },
+    {
+      title: 'Resources',
+      path: '/resources',
+      icon: <ResourceIcon />,
+      roles: ['admin', 'project_manager']
+    },
+    {
+      title: 'Calendar',
+      path: '/calendar',
+      icon: <CalendarIcon />,
+      roles: ['admin', 'project_manager', 'developer']
+    },
+    {
+      title: 'Settings',
+      path: '/settings',
+      icon: <SettingsIcon />,
+      roles: ['admin', 'project_manager', 'developer']
+    }
   ];
+
+  // Filter menu items based on user role
+  const filteredMenuItems = menuItems.filter(item => 
+    item.roles.includes(user?.role)
+  );
 
   return (
     <Box sx={{ 
@@ -65,44 +95,41 @@ const SideNav = ({ onClose }) => {
       borderColor: 'divider',
       pt: 8
     }}>
-      <List>
-        {menuItems.map((item) => (
-          <ListItem 
-            key={item.text}
-            button 
-            onClick={() => handleNavigation(item.path)}
-            selected={isActive(item.path)}
-            sx={{
-              color: theme => theme.palette.text.primary,
-              '&.Mui-selected': {
-                backgroundColor: theme => 
-                  theme.palette.mode === 'dark' 
-                    ? 'rgba(255, 255, 255, 0.08)'
-                    : 'rgba(0, 0, 0, 0.08)',
-                '&:hover': {
-                  backgroundColor: theme => 
-                    theme.palette.mode === 'dark' 
-                      ? 'rgba(255, 255, 255, 0.12)'
-                      : 'rgba(0, 0, 0, 0.12)',
-                }
-              },
-              '&:hover': {
-                backgroundColor: theme => 
-                  theme.palette.mode === 'dark' 
-                    ? 'rgba(255, 255, 255, 0.08)'
-                    : 'rgba(0, 0, 0, 0.04)',
-              }
-            }}
+      <List component="nav">
+        {filteredMenuItems.map((item) => (
+          <Tooltip 
+            key={item.path} 
+            title={item.title} 
+            placement="right"
           >
-            <ListItemIcon sx={{ 
-              color: theme => isActive(item.path) 
-                ? theme.palette.primary.main 
-                : theme.palette.text.primary 
-            }}>
-              {item.icon}
-            </ListItemIcon>
-            <ListItemText primary={item.text} />
-          </ListItem>
+            <ListItem
+              button
+              selected={location.pathname === item.path}
+              onClick={() => handleNavigation(item.path)}
+              sx={{
+                mb: 1,
+                borderRadius: 1,
+                '&.Mui-selected': {
+                  bgcolor: 'primary.main',
+                  color: 'primary.contrastText',
+                  '&:hover': {
+                    bgcolor: 'primary.dark',
+                  },
+                  '& .MuiListItemIcon-root': {
+                    color: 'primary.contrastText',
+                  },
+                },
+              }}
+            >
+              <ListItemIcon sx={{ 
+                minWidth: 40,
+                color: location.pathname === item.path ? 'inherit' : 'text.secondary' 
+              }}>
+                {item.icon}
+              </ListItemIcon>
+              <ListItemText primary={item.title} />
+            </ListItem>
+          </Tooltip>
         ))}
       </List>
 

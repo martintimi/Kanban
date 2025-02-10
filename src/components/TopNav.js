@@ -17,7 +17,7 @@ import ListItem from '@mui/material/ListItem';
 import ListItemText from '@mui/material/ListItemText';
 import ListItemAvatar from '@mui/material/ListItemAvatar';
 import format from 'date-fns/format';
-import { subscribeToNotifications } from '../services/notification.service';
+import { NotificationService } from '../services/notification.service';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import NotificationBell from './NotificationBell';
@@ -84,7 +84,7 @@ const TopNav = () => {
     const setupNotifications = async () => {
       if (user?.uid) {
         try {
-          const unsubscribe = await subscribeToNotifications(
+          const unsubscribe = await NotificationService.subscribeToNotifications(
             user.uid, 
             (notification) => {
               setNotifications(prev => [{

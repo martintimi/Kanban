@@ -24,7 +24,13 @@ import {
   FormControl,
   InputLabel,
   OutlinedInput,
-  FormHelperText
+  FormHelperText,
+  Container,
+  Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from "@mui/material";
 import {
   Visibility,
@@ -33,6 +39,8 @@ import {
 import { keyframes } from '@mui/system';
 import LoadingButton from '@mui/lab/LoadingButton';
 import { useToast } from '../context/ToastContext';
+import { auth } from '../firebase/config';
+import { sendPasswordResetEmail } from 'firebase/auth';
 
 const Header = styled(Typography)(({ theme }) => ({
     fontSize: '1.25rem',
@@ -96,6 +104,8 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [formErrors, setFormErrors] = useState({});
   const theme = useTheme();
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
 
   const handleClickShowPassword = () => {
     setShowPassword(!showPassword);
@@ -187,6 +197,21 @@ export default function Login() {
       showToast('🎉 Successfully logged in with GitHub!', 'success');
     } catch (err) {
       setError('❌ Unable to sign in with GitHub. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    try {
+      setLoading(true);
+      await sendPasswordResetEmail(auth, resetEmail);
+      showToast('Password reset email sent! Check your inbox.', 'success');
+      setResetDialogOpen(false);
+      setResetEmail('');
+    } catch (error) {
+      console.error('Error sending reset email:', error);
+      showToast(error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -387,9 +412,55 @@ export default function Login() {
                 </Link>
               </Typography>
             </Box>
+
+            <Box sx={{ mt: 3, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                <Link
+                  component="button"
+                  variant="body2"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setResetDialogOpen(true);
+                  }}
+                >
+                  Forgot password?
+                </Link>
+              </Typography>
+            </Box>
           </CardContent>
         </Card>
       </Box>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={resetDialogOpen} onClose={() => setResetDialogOpen(false)}>
+        <DialogTitle>Reset Password</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Enter your email address and we'll send you a link to reset your password.
+          </Typography>
+          <TextField
+            autoFocus
+            margin="dense"
+            id="resetEmail"
+            label="Email Address"
+            type="email"
+            fullWidth
+            variant="outlined"
+            value={resetEmail}
+            onChange={(e) => setResetEmail(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResetDialogOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={handleResetPassword}
+            variant="contained"
+            disabled={!resetEmail || loading}
+          >
+            Send Reset Link
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

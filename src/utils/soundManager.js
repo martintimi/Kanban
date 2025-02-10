@@ -55,8 +55,26 @@ class SoundManager {
       audio.volume = normalizedVolume;
     });
   }
+
+  static async playWarningSound() {
+    try {
+      // Try to play the warning sound
+      if (this.audioElements.BELL) {
+        const bell = this.audioElements.BELL;
+        bell.currentTime = 0;
+        await bell.play();
+      }
+    } catch (error) {
+      console.error('Error playing warning sound:', error);
+    }
+  }
 }
 
-export { SoundManager, SOUNDS };
+export { SoundManager, SOUNDS, playWarningSound };
 
-export const soundManager = new SoundManager(); 
+export const soundManager = new SoundManager();
+
+// Call this function when the session is about to expire
+function playWarningSound() {
+  soundManager.playNotification('BELL');
+} 

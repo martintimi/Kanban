@@ -29,7 +29,8 @@ import {
   Checkbox,
   Button,
   Badge,
-  Avatar
+  Avatar,
+  Divider
 } from '@mui/material';
 import {
   Google as GoogleIcon,
@@ -111,7 +112,14 @@ const calculatePasswordStrength = (password) => {
 
 export default function Signup() {
   const navigate = useNavigate();
-  const { signup, loginWithGoogle, loginWithGithub, loading: authLoading, error, setError } = useAuth();
+  const { 
+    signup, 
+    loginWithGoogle, 
+    loginWithGithub, 
+    loading: authLoading, 
+    error, 
+    setError 
+  } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     fullName: "",
@@ -196,7 +204,7 @@ export default function Signup() {
         phone: formData.phone
       });
 
-      showToast('🎉 Account created successfully!', 'success');
+      showToast('🎉 Account created successfully! Welcome aboard!', 'success');
       navigate("/dashboard");
     } catch (err) {
       console.error('Signup error:', err);
@@ -218,6 +226,9 @@ export default function Signup() {
           break;
         case 'auth/weak-password':
           showToast('❌ Please choose a stronger password', 'error');
+          break;
+        case 'auth/admin-restricted-operation':
+          showToast('❌ This operation is restricted. Please try a different method.', 'error');
           break;
         default:
           showToast('❌ Failed to create account. Please try again.', 'error');
@@ -257,16 +268,36 @@ export default function Signup() {
   };
 
   const handleGoogleSignup = async () => {
-    const success = await loginWithGoogle();
-    if (success) {
-      navigate('/dashboard');
+    try {
+      setLoading(true);
+      setError(null);
+      const success = await loginWithGoogle();
+      if (success) {
+        showToast('🎉 Successfully signed in with Google! Welcome!', 'success');
+        navigate('/dashboard');
+      }
+    } catch (error) {
+      console.error('Google signup error:', error);
+      showToast('❌ Failed to sign in with Google. Please try again.', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleGithubSignup = async () => {
-    const success = await loginWithGithub();
-    if (success) {
-      navigate('/dashboard');
+    try {
+      setLoading(true);
+      setError(null);
+      const success = await loginWithGithub();
+      if (success) {
+        showToast('🎉 Successfully signed in with GitHub! Welcome!', 'success');
+        navigate('/dashboard');
+      }
+    } catch (error) {
+      console.error('GitHub signup error:', error);
+      showToast('❌ Failed to sign in with GitHub. Please try again.', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -581,6 +612,41 @@ export default function Signup() {
                 </LoadingButton>
               </Box>
             </form>
+
+            <Box sx={{ mt: 3, textAlign: 'center' }}>
+              <Divider sx={{ my: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  OR
+                </Typography>
+              </Divider>
+              
+              <Grid container spacing={2} justifyContent="center">
+                <Grid item>
+                  <LoadingButton
+                    variant="outlined"
+                    startIcon={<img src={GoogleLogo} alt="Google" width="20" />}
+                    onClick={handleGoogleSignup}
+                    loading={loading}
+                    disabled={loading}
+                    sx={{ minWidth: '200px' }}
+                  >
+                    Continue with Google
+                  </LoadingButton>
+                </Grid>
+                <Grid item>
+                  <LoadingButton
+                    variant="outlined"
+                    startIcon={<img src={GithubLogo} alt="GitHub" width="20" />}
+                    onClick={handleGithubSignup}
+                    loading={loading}
+                    disabled={loading}
+                    sx={{ minWidth: '200px' }}
+                  >
+                    Continue with GitHub
+                  </LoadingButton>
+                </Grid>
+              </Grid>
+            </Box>
           </CardContent>
         </Card>
       </Box>

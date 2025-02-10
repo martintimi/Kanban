@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { ProjectService } from '../components/Projects/project.service';
+import { ProjectService } from '../services/project.service';
 import { useAuth } from './AuthContext';
 
 const ActivityContext = createContext();

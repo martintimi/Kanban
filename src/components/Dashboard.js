@@ -59,11 +59,12 @@ import { useTheme } from '@mui/material/styles';
 import format from 'date-fns/format';
 import formatDistanceToNow from 'date-fns/formatDistanceToNowStrict';
 import DeleteIcon from "@mui/icons-material/Delete";
-import { ProjectService } from "./Projects/project.service";
+import { ProjectService } from '../services/project.service';
 import { useActivities } from "../context/ActivityContext";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from '../context/ToastContext';
 import ProjectForm from './Projects/ProjectForm';
+import NotificationList from './NotificationList';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -196,7 +197,7 @@ export default function Dashboard() {
 
       await ProjectService.deleteProject(selectedProject.id);
       setProjects(prev => prev.filter(p => p.id !== selectedProject.id));
-      setDeleteConfirmOpen(false);
+    setDeleteConfirmOpen(false);
       showToast('Project deleted successfully', 'success');
       await refreshActivities();
     } catch (error) {
@@ -957,6 +958,15 @@ export default function Dashboard() {
             />
           </Box>
         )}
+
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={8}>
+            {/* Your main content */}
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <NotificationList />
+          </Grid>
+        </Grid>
       </Box>
     </Box>
   );

@@ -17,7 +17,7 @@ import {
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import { useAuth } from '../context/AuthContext';
 import { NotificationService } from '../services/notification.service';
-import { format } from 'date-fns';
+import { format, isValid } from 'date-fns';
 import { useTheme } from '@mui/material/styles';
 import { motion, AnimatePresence } from 'framer-motion';
 import CommentIcon from '@mui/icons-material/Comment';
@@ -76,34 +76,31 @@ const NotificationBell = () => {
     }
   };
 
-  // Enhanced notification subscription
   useEffect(() => {
-    if (!user?.uid) return;
+    let unsubscribe = () => {};
 
-    const unsubscribe = NotificationService.subscribeToUserNotifications(
-      user.uid,
-      (newNotifications) => {
-        setNotifications(prev => {
-          // Filter out duplicates and sort by date
-          const combined = [...newNotifications, ...prev];
-          const unique = Array.from(new Set(combined.map(n => n.id)))
-            .map(id => combined.find(n => n.id === id))
-            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-          
-          // Calculate new unread count
-          const unread = unique.filter(n => !n.read).length;
-          if (unread > unreadCount) {
-            playNotificationSound(newNotifications[0]?.type);
-          }
-          setUnreadCount(unread);
-          
-          return unique;
-        });
+    const setupNotifications = async () => {
+      if (user?.uid) {
+        try {
+          // Get initial notifications
+          const initialNotifications = await NotificationService.getUserNotifications(user.uid);
+          setNotifications(initialNotifications);
+          setUnreadCount(initialNotifications.filter(n => !n.read).length);
+
+          // Subscribe to real-time updates
+          unsubscribe = NotificationService.subscribeToNotifications(user.uid, (newNotification) => {
+            setNotifications(prev => [newNotification, ...prev]);
+            setUnreadCount(prev => prev + 1);
+          });
+        } catch (error) {
+          console.error('Error setting up notifications:', error);
+        }
       }
-    );
+    };
 
+    setupNotifications();
     return () => unsubscribe();
-  }, [user, unreadCount]);
+  }, [user]);
 
   const handleClick = (event) => {
     setAnchorEl(event.currentTarget);
@@ -133,11 +130,18 @@ const NotificationBell = () => {
 
   // Group notifications by date
   const groupedNotifications = notifications.reduce((groups, notification) => {
-    const date = format(new Date(notification.createdAt), 'yyyy-MM-dd');
-    if (!groups[date]) {
-      groups[date] = [];
+    // Ensure we have a valid date
+    const date = new Date(notification.createdAt || notification.timestamp);
+    if (!isValid(date)) {
+      console.warn('Invalid date for notification:', notification);
+      return groups;
     }
-    groups[date].push(notification);
+    
+    const dateStr = format(date, 'yyyy-MM-dd');
+    if (!groups[dateStr]) {
+      groups[dateStr] = [];
+    }
+    groups[dateStr].push(notification);
     return groups;
   }, {});
 
@@ -244,7 +248,7 @@ const NotificationBell = () => {
                   bgcolor: 'background.default'
                 }}
               >
-                {format(new Date(date), 'MMMM d, yyyy')}
+                {isValid(new Date(date)) ? format(new Date(date), 'MMMM d, yyyy') : 'Invalid Date'}
               </Typography>
 
               {notifications.map((notification) => (

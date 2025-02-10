@@ -1,3 +1,5 @@
+import { playWarningSound } from '../utils/soundManager';
+
 const TIMEOUT_DURATION = 30 * 60 * 1000; // 30 minutes in milliseconds
 const WARNING_BEFORE = 5 * 60 * 1000;    // Show warning 5 minutes before timeout
 
@@ -63,4 +65,20 @@ class SessionManager {
   }
 }
 
-export const sessionManager = new SessionManager(); 
+export const sessionManager = new SessionManager();
+
+// Call this function when the session is about to expire
+function onSessionAboutToExpire() {
+  // Reset the session timer
+  sessionManager.resetTimer(
+    // This function is called when the session is about to expire
+    () => {
+      // Call the playWarningSound function
+      playWarningSound();
+    },
+    // This function is called when the session is about to expire
+    () => {
+      // You can add code here to show a warning message
+    }
+  );
+} 

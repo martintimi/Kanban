@@ -18,19 +18,27 @@ import {
   DialogActions,
   Button
 } from '@mui/material';
+import { LoadingButton } from '@mui/lab';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import format from 'date-fns/format';
 import { useAuth } from '../../context/AuthContext';
-import { ProjectService } from '../Projects/project.service';
+import { ProjectService } from '../../services/project.service';
+import { TaskService } from '../../services/TaskService';
 import SubtaskList from './SubtaskList';
+import TaskStatus from './TaskStatus';
+import { useToast } from '../../context/ToastContext';
 
 const TaskCard = ({ task, projectId, onEdit, onDelete, onUpdate }) => {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [anchorEl, setAnchorEl] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  
+  const isAssignedToTask = task.assignee === user?.uid;
   
   const handleMenuClick = (event) => {
     event.stopPropagation();
@@ -58,6 +66,20 @@ const TaskCard = ({ task, projectId, onEdit, onDelete, onUpdate }) => {
       onDelete(task.id);
     } catch (error) {
       console.error('Error deleting task:', error);
+    }
+  };
+
+  const handleStatusUpdate = async (newStatus) => {
+    try {
+      setLoading(true);
+      await TaskService.updateTaskStatus(projectId, task.id, newStatus, user.uid);
+      showToast(`Task status updated to ${newStatus}`, 'success');
+      onUpdate && onUpdate();
+    } catch (error) {
+      console.error('Error updating task status:', error);
+      showToast('Failed to update task status', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -143,11 +165,7 @@ const TaskCard = ({ task, projectId, onEdit, onDelete, onUpdate }) => {
               size="small"
               color={getPriorityColor(task.priority)}
             />
-            <Chip 
-              label={task.status}
-              size="small"
-              color={getStatusColor(task.status)}
-            />
+            <TaskStatus status={task.status} />
           </Box>
 
           {task.dueDate && (
@@ -196,6 +214,50 @@ const TaskCard = ({ task, projectId, onEdit, onDelete, onUpdate }) => {
             subtasks={task.subtasks || []}
             onUpdate={onUpdate}
           />
+
+          {/* Status update buttons for developers */}
+          {user?.role === 'developer' && task.assignee === user.uid && (
+            <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+              {task.status === 'To Do' && (
+                <LoadingButton
+                  size="small"
+                  variant="contained"
+                  color="primary"
+                  onClick={() => handleStatusUpdate('In Progress')}
+                  loading={loading}
+                >
+                  Start Working
+                </LoadingButton>
+              )}
+              
+              {task.status === 'In Progress' && (
+                <LoadingButton
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  onClick={() => handleStatusUpdate('Done')}
+                  loading={loading}
+                >
+                  Mark as Done
+                </LoadingButton>
+              )}
+            </Box>
+          )}
+
+          {/* Verification button for project managers */}
+          {user?.role === 'project_manager' && task.status === 'Done' && (
+            <Box sx={{ mt: 2 }}>
+              <LoadingButton
+                size="small"
+                variant="contained"
+                color="success"
+                onClick={() => handleStatusUpdate('Verified')}
+                loading={loading}
+              >
+                Verify Task
+              </LoadingButton>
+            </Box>
+          )}
         </CardContent>
       </Card>
 
