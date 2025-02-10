@@ -7,7 +7,7 @@ import SignUp from "./components/SignUp";
 import Dashboard from './components/Dashboard';
 import SideNav from './components/SideNav';
 import 'bootstrap/dist/css/bootstrap.min.css';
-import { BrowserRouter as Router, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import TaskColumn from './components/Task/TaskColumn';
 import IconButton from '@mui/material/IconButton';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -36,6 +36,10 @@ import { sessionManager } from './utils/sessionManager';
 import SessionWarningDialog from './components/SessionWarningDialog';
 import { SoundManager } from './utils/soundManager';
 import Settings from './components/Settings/Settings';
+import CssBaseline from '@mui/material/CssBaseline';
+import { BrowserRouter } from 'react-router-dom';
+import ResourceDashboard from './components/ResourceManagement/ResourceDashboard';
+import ProjectCalendar from './components/Calendar/ProjectCalendar';
 
 const ProtectedRoute = ({ children, authRequired = true }) => {
   const { user, loading, logout } = useAuth();
@@ -110,6 +114,17 @@ const ProtectedRoute = ({ children, authRequired = true }) => {
       />
     </>
   );
+};
+
+// Add this helper function for role-based route protection
+const RoleProtectedRoute = ({ children, allowedRoles }) => {
+  const { user } = useAuth();
+  
+  if (!allowedRoles.includes(user?.role)) {
+    return <Navigate to="/dashboard" />;
+  }
+  
+  return <ProtectedRoute>{children}</ProtectedRoute>;
 };
 
 function AppContent() {
@@ -252,27 +267,23 @@ function AppContent() {
               </PageTransition>
             </ProtectedRoute>
           } />
+          <Route path="/resources" element={
+            <RoleProtectedRoute allowedRoles={['admin', 'project_manager']}>
+              <PageTransition>
+                <ResourceDashboard />
+              </PageTransition>
+            </RoleProtectedRoute>
+          } />
+          <Route path="/calendar" element={
+            <RoleProtectedRoute allowedRoles={['admin', 'project_manager', 'developer']}>
+              <PageTransition>
+                <ProjectCalendar />
+              </PageTransition>
+            </RoleProtectedRoute>
+          } />
         </Routes>
       </Box>
     </Box>
-  );
-}
-
-function App() {
-  return (
-    <ToastProvider>
-      <Router>
-        <AuthProvider>
-          <ThemeProvider>
-            <ProjectProvider>
-              <ActivityProvider>
-                <AppWithTheme />
-              </ActivityProvider>
-            </ProjectProvider>
-          </ThemeProvider>
-        </AuthProvider>
-      </Router>
-    </ToastProvider>
   );
 }
 
@@ -282,36 +293,20 @@ function AppWithTheme() {
   const theme = createTheme({
     palette: {
       mode: darkMode ? 'dark' : 'light',
-      primary: {
-        main: '#0052CC',
-      },
       background: {
-        default: darkMode ? '#1a1a1a' : '#f5f5f5',
-        paper: darkMode ? '#2d2d2d' : '#ffffff',
+        default: darkMode ? '#121212' : '#f5f5f5',
+        paper: darkMode ? '#1e1e1e' : '#ffffff',
       },
       text: {
-        primary: darkMode ? '#ffffff' : '#555555',
-        secondary: darkMode ? '#b3b3b3' : '#757575',
-      }
+        primary: darkMode ? '#ffffff' : '#000000',
+        secondary: darkMode ? '#b3b3b3' : '#666666',
+      },
     },
     components: {
-      MuiCard: {
+      MuiPaper: {
         styleOverrides: {
           root: {
-            transition: 'all 0.3s ease',
-            '&:hover': {
-              transform: 'translateY(-4px)',
-              boxShadow: darkMode 
-                ? '0 8px 16px rgba(0, 0, 0, 0.4)'
-                : '0 8px 16px rgba(0, 0, 0, 0.1)',
-            },
-          },
-        },
-      },
-      MuiButton: {
-        styleOverrides: {
-          root: {
-            transition: 'all 0.3s ease',
+            backgroundImage: 'none',
           },
         },
       },
@@ -320,14 +315,34 @@ function AppWithTheme() {
 
   return (
     <MuiThemeProvider theme={theme}>
+      <CssBaseline />
       <Box sx={{ 
-        bgcolor: 'background.default', 
         minHeight: '100vh',
+        bgcolor: 'background.default',
+        color: 'text.primary',
         transition: 'all 0.3s ease'
       }}>
         <AppContent />
       </Box>
     </MuiThemeProvider>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <ThemeProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <ProjectProvider>
+              <ActivityProvider>
+                <AppWithTheme />
+              </ActivityProvider>
+            </ProjectProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    </BrowserRouter>
   );
 }
 

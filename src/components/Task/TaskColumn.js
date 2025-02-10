@@ -37,7 +37,9 @@ import {
   Divider,
   FormControl,
   InputLabel,
-  Select
+  Select,
+  Tooltip,
+  Paper
 } from "@mui/material";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -45,7 +47,11 @@ import {
   HourglassEmpty,
   Cancel,
   MoreVert,
-  ArrowBack
+  ArrowBack,
+  AccessTime,
+  Edit,
+  Delete,
+  Assignment
 } from "@mui/icons-material";
 import AddIcon from "@mui/icons-material/Add";
 import PeopleIcon from "@mui/icons-material/People";
@@ -55,8 +61,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useProjects } from '../../context/ProjectContext';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { DatePicker } from '@mui/lab';
-import DeleteIcon from '@mui/icons-material/Delete';
-import AddTaskIcon from '@mui/icons-material/AddTask';
+import TaskDetails from './TaskDetails';
+import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '../../context/AuthContext';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import LinkIcon from '@mui/icons-material/Link';
@@ -66,9 +72,9 @@ import { storage } from '../../firebase/config';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
-import { NotificationService, subscribeToNotifications } from '../../services/notification.service';
+import { NotificationService } from '../../services/notification.service';
 import { UserService } from '../../services/user.service';
-import { ProjectService } from '../Projects/project.service';
+import { ProjectService } from '../../services/project.service';
 import { doc, getDoc, getDocs, updateDoc, collection } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import EmptyState from '../EmptyState';
@@ -76,6 +82,128 @@ import { useToast } from '../../context/ToastContext';
 import TaskCard from './TaskCard';
 import CreateTaskModal from './CreateTaskModal';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
+import { TaskService } from '../../services/TaskService';
+import LoadingSpinner from '../LoadingSpinner';
+import { LoadingButton } from '@mui/lab';
+
+const TaskItem = ({ task, projectId, onEdit, onDelete }) => {
+  const [anchorEl, setAnchorEl] = useState(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const { showToast } = useToast();
+
+  const handleMenuClick = (event) => {
+    event.stopPropagation();
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  return (
+    <Card sx={{ mb: 2 }}>
+      <CardContent>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Typography variant="h6">{task.name}</Typography>
+          <IconButton onClick={handleMenuClick} size="small">
+            <MoreVert />
+          </IconButton>
+        </Box>
+
+        <Typography color="textSecondary" variant="body2" sx={{ mt: 1 }}>
+          {task.description}
+        </Typography>
+
+        <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+          <Chip 
+            label={task.status} 
+            size="small"
+            color={
+              task.status === 'Done' ? 'success' :
+              task.status === 'In Progress' ? 'warning' :
+              'default'
+            }
+          />
+          <Chip 
+            label={task.priority} 
+            size="small"
+            color={
+              task.priority === 'high' ? 'error' :
+              task.priority === 'medium' ? 'warning' :
+              'default'
+            }
+          />
+        </Box>
+
+        {/* Progress bar */}
+        <Box sx={{ mt: 2 }}>
+          <LinearProgress 
+            variant="determinate" 
+            value={task.progress || 0} 
+            sx={{ height: 6, borderRadius: 1 }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            {task.progress || 0}% Complete
+          </Typography>
+        </Box>
+
+        {/* Menu */}
+        <Menu
+          anchorEl={anchorEl}
+          open={Boolean(anchorEl)}
+          onClose={handleMenuClose}
+        >
+          <MenuItem onClick={() => {
+            handleMenuClose();
+            onEdit(task);
+          }}>
+            <ListItemIcon>
+              <Edit fontSize="small" />
+            </ListItemIcon>
+            Edit Task
+          </MenuItem>
+          <MenuItem onClick={() => {
+            handleMenuClose();
+            setDeleteDialogOpen(true);
+          }} sx={{ color: 'error.main' }}>
+            <ListItemIcon>
+              <Delete fontSize="small" color="error" />
+            </ListItemIcon>
+            Delete Task
+          </MenuItem>
+        </Menu>
+
+        {/* Delete Dialog */}
+        <Dialog
+          open={deleteDialogOpen}
+          onClose={() => setDeleteDialogOpen(false)}
+        >
+          <DialogTitle>Delete Task</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to delete "{task.name}"?
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => {
+                onDelete(task.id);
+                setDeleteDialogOpen(false);
+              }} 
+              color="error"
+              variant="contained"
+            >
+              Delete
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </CardContent>
+    </Card>
+  );
+};
 
 const TaskColumn = () => {
   const { projectId } = useParams();
@@ -139,6 +267,14 @@ const TaskColumn = () => {
   const [allUsers, setAllUsers] = useState([]);
   const { showToast } = useToast();
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [taskForm, setTaskForm] = useState({
+    name: '',
+    description: '',
+    assignee: '',
+    priority: 'medium',
+    dueDate: null
+  });
+  const [verifyingTaskId, setVerifyingTaskId] = useState(null);
 
   // Add role check
   const canAssignTasks = currentUser?.role === 'admin' || 
@@ -197,14 +333,14 @@ const TaskColumn = () => {
     setSelectedTask(null);
   };
 
-  const handleDeleteTask = async () => {
+  const handleDeleteTask = async (taskId) => {
     try {
-      await ProjectService.deleteTask(projectId, selectedTask.id);
+      await TaskService.deleteTask(projectId, taskId);
       await loadTasks();
+      showToast('Task deleted successfully', 'success');
     } catch (error) {
-      showToast('Failed to delete task: ' + error.message, 'error');
-    } finally {
-      handleCloseDeleteDialog();
+      console.error('Error deleting task:', error);
+      showToast('Failed to delete task', 'error');
     }
   };
 
@@ -310,17 +446,30 @@ const TaskColumn = () => {
       setLoading(true);
       const newTask = await ProjectService.addTask(projectId, {
         ...taskData,
-        createdBy: {
-          id: currentUser.uid,
-          name: currentUser.displayName || currentUser.email,
-          photoURL: currentUser.photoURL
-        }
+        createdBy: currentUser.uid,
+        assignee: taskData.assignee,
+        name: taskData.name,
+        description: taskData.description,
+        priority: taskData.priority || 'medium',
+        status: 'To Do',
+        dueDate: taskData.dueDate
       });
 
-      // Activity tracking is now handled inside ProjectService.addTask
+      // Add activity for task creation
+      await ProjectService.addActivity(projectId, {
+        type: 'task_created',
+        entityType: 'task',
+        userId: currentUser.uid,
+        userName: currentUser.displayName || currentUser.email,
+        details: `Created task: ${taskData.name}`,
+        taskId: newTask.id,
+        taskName: taskData.name
+      });
+
       showToast('Task created successfully!', 'success');
       await loadTasks();
     } catch (error) {
+      console.error('Error creating task:', error);
       showToast('Failed to create task: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -759,7 +908,7 @@ const TaskColumn = () => {
         sx={{ color: 'error.main' }}
       >
         <ListItemIcon>
-          <DeleteIcon fontSize="small" color="error" />
+          <Delete />
         </ListItemIcon>
         Delete Task
       </MenuItem>
@@ -824,7 +973,7 @@ const TaskColumn = () => {
     const setupNotifications = async () => {
       if (currentUser?.uid) {
         try {
-          const unsubscribe = await subscribeToNotifications(
+          const unsubscribe = await NotificationService.subscribeToNotifications(
             currentUser.uid, 
             (notification) => {
               setSnackbar({
@@ -928,7 +1077,7 @@ const TaskColumn = () => {
         {/* Time Tracking */}
         {(task.timeEstimate || task.timeSpent) && (
           <Box sx={{ mt: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
-            <HourglassEmpty fontSize="small" color="action" />
+            <AccessTime fontSize="small" color="action" />
             <Typography variant="body2" color="text.secondary">
               {task.timeSpent || 0}h / {task.timeEstimate || 0}h
             </Typography>
@@ -1020,6 +1169,20 @@ const TaskColumn = () => {
               <NotificationsIcon fontSize="small" color="action" />
             )}
           </Box>
+        )}
+
+        {/* Project Manager Actions */}
+        {task.status === 'Done' && currentUser?.role === 'project_manager' && (
+          <LoadingButton
+            size="small"
+            variant="contained"
+            color="success"
+            onClick={() => handleVerifyTask(task.id)}
+            loading={verifyingTaskId === task.id}
+            disabled={verifyingTaskId !== null}
+          >
+            Verify Task
+          </LoadingButton>
         )}
       </CardContent>
     </Card>
@@ -1129,21 +1292,52 @@ const TaskColumn = () => {
       setLoading(true);
       const projectDoc = await ProjectService.getProject(projectId);
       if (projectDoc) {
-        setTasks(projectDoc.tasks || []);
-        setCurrentProject(projectDoc);
+        const tasks = projectDoc.tasks || [];
+        // Sort and filter tasks based on your requirements
+        setTasks(tasks);
       }
     } catch (error) {
       console.error('Error loading tasks:', error);
-      setError('Failed to load tasks');
+      showToast('Failed to load tasks: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // Add this useEffect to load tasks when component mounts
+  // Add this useEffect to load tasks when the component mounts
   useEffect(() => {
     loadTasks();
   }, [projectId]);
+
+  const handleEditTask = (task) => {
+    setSelectedTask(task);
+    setOpenModal(true);
+  };
+
+  // Update form handling
+  const handleTaskFormChange = (field) => (event) => {
+    setTaskForm(prev => ({
+      ...prev,
+      [field]: event.target.value
+    }));
+  };
+
+  // Update the verify task handler
+  const handleVerifyTask = async (taskId) => {
+    try {
+      setVerifyingTaskId(taskId);
+      await TaskService.verifyTask(projectId, taskId, currentUser.uid);
+      showToast('Task verified successfully', 'success');
+      await loadTasks();
+    } catch (error) {
+      console.error('Error verifying task:', error);
+      showToast('Failed to verify task', 'error');
+    } finally {
+      setVerifyingTaskId(null);
+    }
+  };
+
+  if (loading) return <LoadingSpinner />;
 
   return (
     <Box sx={{ padding: "37px" }}>
@@ -1225,14 +1419,13 @@ const TaskColumn = () => {
                 startIcon={<AddIcon />}
                 onClick={() => {
                   setSelectedTask(null);
-                  setFormData({
-                    'task-summary': '',
-                    'acceptance-criteria': '',
-                    'task-status': 'To Do',
+                  setTaskForm({
+                    name: '',
+                    description: '',
+                    assignee: '',
                     priority: 'medium',
+                    dueDate: null
                   });
-                  setDueDate(new Date().toISOString().split('T')[0]);
-                  setAssignee('');
                   setOpenModal(true);
                 }}
               >
@@ -1265,13 +1458,11 @@ const TaskColumn = () => {
             <Grid container spacing={3} sx={{ mt: 2 }}>
               {filteredAndSortedTasks.map((task) => (
                 <Grid item xs={12} sm={6} md={4} key={task.id}>
-                  <TaskCard
-                    key={task.id}
+                  <TaskItem
                     task={task}
                     projectId={projectId}
-                    onEdit={(task) => setSelectedTask(task)}
+                    onEdit={handleEditTask}
                     onDelete={handleDeleteTask}
-                    onUpdate={loadTasks}
                   />
                 </Grid>
               ))}
@@ -1289,37 +1480,6 @@ const TaskColumn = () => {
       />
 
       <Dialog
-        open={openDeleteDialog}
-        onClose={handleCloseDeleteDialog}
-        aria-labelledby="alert-dialog-title"
-        aria-describedby="alert-dialog-description"
-      >
-        <DialogTitle id="alert-dialog-title">{"Are you sure?"}</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2">
-            Do you really want to delete this task? This action cannot be
-            undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <CustomButton
-            label="Delete"
-            onClick={handleDeleteTask}
-            color="error"
-            variant="text"
-            sx={{ color: "red" }}
-          />
-          <Box sx={{ flex: '1 0 0' }} />
-          <CustomButton
-            label="Cancel"
-            onClick={handleCloseDeleteDialog}
-            color="primary"
-            variant="text"
-          />
-        </DialogActions>
-      </Dialog>
-
-      <Dialog 
         open={teamDialogOpen} 
         onClose={() => setTeamDialogOpen(false)}
         maxWidth="sm"
@@ -1342,7 +1502,7 @@ const TaskColumn = () => {
                         onClick={() => handleRemoveMember(user.id)}
                         color="error"
                       >
-                        <DeleteIcon />
+                        <Delete />
                       </IconButton>
                     )
                   }

@@ -34,7 +34,7 @@ import ShareIcon from '@mui/icons-material/Share';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useAuth } from '../../context/AuthContext';
 import { useProjects } from '../../context/ProjectContext';
-import { ProjectService } from './project.service';
+import { ProjectService } from '../../services/project.service';
 import { useNavigate } from 'react-router-dom';
 import { useActivities } from '../../context/ActivityContext';
 import EmptyState from '../EmptyState';

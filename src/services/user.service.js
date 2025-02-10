@@ -1,18 +1,26 @@
 import { db } from '../firebase/config';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { 
+  collection, 
+  doc, 
+  getDoc, 
+  getDocs,
+  query,
+  where,
+  updateDoc 
+} from 'firebase/firestore';
 
 export class UserService {
   static async getAllUsers() {
     try {
       const usersRef = collection(db, 'users');
-      const querySnapshot = await getDocs(usersRef);
-      return querySnapshot.docs.map(doc => ({
-        uid: doc.id,
+      const snapshot = await getDocs(usersRef);
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
         ...doc.data()
       }));
     } catch (error) {
       console.error('Error getting users:', error);
-      return [];
+      throw error;
     }
   }
 
@@ -40,6 +48,16 @@ export class UserService {
     } catch (error) {
       console.error('Error getting user tasks:', error);
       return [];
+    }
+  }
+
+  static async updateUserSkills(userId, skills) {
+    try {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, { skills });
+    } catch (error) {
+      console.error('Error updating user skills:', error);
+      throw error;
     }
   }
 } 

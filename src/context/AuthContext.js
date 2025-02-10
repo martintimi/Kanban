@@ -1,139 +1,72 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { auth, googleProvider, githubProvider } from '../firebase/config';
 import { 
-  getAuth, 
-  signInWithPopup, 
-  GoogleAuthProvider,
-  GithubAuthProvider,
-  createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  updateProfile,
+  createUserWithEmailAndPassword,
+  signOut,
   onAuthStateChanged,
-  signOut
+  updateProfile,
+  signInWithPopup
 } from 'firebase/auth';
 import { 
-  doc, 
-  getDoc, 
-  setDoc 
+  doc,
+  getDoc,
+  setDoc
 } from 'firebase/firestore';
-import { initializeApp } from 'firebase/app';
-import { AUTH_CONFIG } from '../config/auth.config';
 import { db } from '../firebase/config';
-import { useNavigate } from 'react-router-dom';
-import { sessionManager } from '../utils/sessionManager';
-import { useToast } from '../context/ToastContext';
+import { ToastProvider } from './ToastContext';
 
-// Initialize Firebase
-const app = initializeApp(AUTH_CONFIG.firebase);
-const auth = getAuth(app);
-
-const googleProvider = new GoogleAuthProvider();
-const githubProvider = new GithubAuthProvider();
-
-const AuthContext = createContext(null);
+const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const userRoles = {
-    ADMIN: 'admin',
-    DEVELOPER: 'developer',
-    PROJECT_MANAGER: 'project_manager'
-  };
-
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const navigate = useNavigate();
-  const { showToast } = useToast();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
         try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          const userData = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email,
-            name: firebaseUser.displayName,
-            photoURL: firebaseUser.photoURL,
-            role: userDoc.data()?.role || 'developer'
-          };
-          setUser(userData);
-          localStorage.setItem('user', JSON.stringify(userData));
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          const userData = userDoc.data();
+          setUser({
+            ...user,
+            ...userData,
+            uid: user.uid
+          });
         } catch (error) {
-          console.error('Error getting user data:', error);
+          console.error('Error fetching user data:', error);
         }
       } else {
         setUser(null);
-        localStorage.removeItem('user');
       }
       setLoading(false);
-      if (!firebaseUser) {
-        sessionManager.clearTimer();
-      }
     });
 
     return () => unsubscribe();
   }, []);
 
-  const loginWithGoogle = async () => {
+  const login = async (email, password) => {
     try {
-      setLoading(true);
-      const result = await signInWithPopup(auth, googleProvider);
-      const user = {
-        id: result.user.uid,
-        email: result.user.email,
-        name: result.user.displayName,
-        photoURL: result.user.photoURL,
-        role: null
-      };
-      setUser(user);
-      localStorage.setItem('user', JSON.stringify(user));
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      const userData = userDoc.data();
+      
+      setUser({
+        ...result.user,
+        ...userData,
+        uid: result.user.uid
+      });
+      
       return true;
-    } catch (err) {
-      setError(err.message);
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loginWithGithub = async () => {
-    try {
-      setLoading(true);
-      const result = await signInWithPopup(auth, githubProvider);
-      const user = {
-        id: result.user.uid,
-        email: result.user.email,
-        name: result.user.displayName,
-        photoURL: result.user.photoURL,
-        role: null
-      };
-      setUser(user);
-      localStorage.setItem('user', JSON.stringify(user));
-      return true;
-    } catch (err) {
-      setError(err.message);
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await signOut(auth);
-      sessionManager.clearTimer();
-      setUser(null);
-      localStorage.removeItem('user');
-      navigate('/login');
     } catch (error) {
-      console.error('Error logging out:', error);
+      throw error;
     }
   };
 
   const signup = async ({ fullName, email, password, role, photoURL, phone }) => {
     try {
       setLoading(true);
-      setError(null);
 
       // Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -164,8 +97,6 @@ export const AuthProvider = ({ children }) => {
       await setDoc(userRef, userData);
 
       setUser(userData);
-      localStorage.setItem('user', JSON.stringify(userData));
-      
       return userData;
     } catch (error) {
       console.error('Signup error:', error);
@@ -175,29 +106,70 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (email, password) => {
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  };
+
+  const loginWithGoogle = async () => {
     try {
       setLoading(true);
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      setError(null);
+      const result = await signInWithPopup(auth, googleProvider);
       
-      // Get user's additional data from Firestore
-      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-      
+      // Create/update user document in Firestore
+      const userRef = doc(db, 'users', result.user.uid);
       const userData = {
-        uid: userCredential.user.uid,
-        email: userCredential.user.email,
-        name: userCredential.user.displayName,
-        role: userDoc.data()?.role || 'developer',
-        ...userDoc.data()
+        uid: result.user.uid,
+        fullName: result.user.displayName,
+        email: result.user.email,
+        photoURL: result.user.photoURL,
+        role: 'developer', // default role
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
       };
 
+      await setDoc(userRef, userData, { merge: true });
       setUser(userData);
-      localStorage.setItem('user', JSON.stringify(userData));
-      
-      return userData;
+      return true;
     } catch (error) {
-      console.error('Login error:', error);
-      throw error;
+      console.error('Google login error:', error);
+      setError(error.message);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loginWithGithub = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await signInWithPopup(auth, githubProvider);
+      
+      // Create/update user document in Firestore
+      const userRef = doc(db, 'users', result.user.uid);
+      const userData = {
+        uid: result.user.uid,
+        fullName: result.user.displayName,
+        email: result.user.email,
+        photoURL: result.user.photoURL,
+        role: 'developer', // default role
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+      };
+
+      await setDoc(userRef, userData, { merge: true });
+      setUser(userData);
+      return true;
+    } catch (error) {
+      console.error('Github login error:', error);
+      setError(error.message);
+      return false;
     } finally {
       setLoading(false);
     }
@@ -207,18 +179,20 @@ export const AuthProvider = ({ children }) => {
     user,
     loading,
     error,
+    setError,
     login,
     signup,
-    loginWithGoogle,
-    loginWithGithub,
     logout,
-    setError
+    loginWithGoogle,
+    loginWithGithub
   };
 
   return (
-    <AuthContext.Provider value={value}>
-      {!loading && children}
-    </AuthContext.Provider>
+    <ToastProvider>
+      <AuthContext.Provider value={value}>
+        {children}
+      </AuthContext.Provider>
+    </ToastProvider>
   );
 };
 

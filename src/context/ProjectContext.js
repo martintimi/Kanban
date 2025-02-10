@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { ProjectService } from '../components/Projects/project.service';
+import { ProjectService } from '../services/project.service';
 import { useAuth } from './AuthContext';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase/config';
 
-const ProjectContext = createContext(null);
+const ProjectContext = createContext();
 
 export const ProjectProvider = ({ children }) => {
   const [projects, setProjects] = useState([]);
@@ -10,25 +12,51 @@ export const ProjectProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const { user } = useAuth();
 
-  const fetchProjects = async () => {
-    if (!user?.uid) return;
-    
-    try {
-      setLoading(true);
-      const fetchedProjects = await ProjectService.getUserProjects(user.uid);
-      setProjects(fetchedProjects);
-    } catch (err) {
-      console.error('Error fetching projects:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    if (user?.uid) {
-      fetchProjects();
-    }
+    let unsubscribe = () => {};
+
+    const loadProjects = async () => {
+      if (user?.uid) {
+        try {
+          setLoading(true);
+          setError(null);
+          
+          console.log('Fetching projects for user:', user.uid);
+          
+          const projectsRef = collection(db, 'projects');
+          const q = query(
+            projectsRef, 
+            where('members', 'array-contains', user.uid)
+          );
+          
+          unsubscribe = onSnapshot(q, (snapshot) => {
+            const projectsData = snapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data()
+            }));
+            
+            console.log('Fetched projects:', projectsData);
+            
+            setProjects(projectsData);
+            setLoading(false);
+          }, (error) => {
+            console.error('Error loading projects:', error);
+            setError(error.message);
+            setLoading(false);
+          });
+        } catch (error) {
+          console.error('Error setting up projects listener:', error);
+          setError(error.message);
+          setLoading(false);
+        }
+      } else {
+        setProjects([]);
+        setLoading(false);
+      }
+    };
+
+    loadProjects();
+    return () => unsubscribe();
   }, [user]);
 
   const calculateProjectStats = (projectsList) => {
@@ -99,14 +127,13 @@ export const ProjectProvider = ({ children }) => {
 
   const value = {
     projects,
-    setProjects,
     loading,
     error,
     setError,
-    fetchProjects,
     createProject,
     updateProject,
-    deleteProject
+    deleteProject,
+    setProjects
   };
 
   return (

@@ -1,7 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
-import { getMessaging } from 'firebase/messaging';
+import { getMessaging, isSupported } from 'firebase/messaging';
+import { getAuth, GoogleAuthProvider, GithubAuthProvider } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -16,6 +17,26 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
-const messaging = getMessaging(app);
+const auth = getAuth(app);
 
-export { app, db, storage, messaging }; 
+// Initialize providers
+const googleProvider = new GoogleAuthProvider();
+const githubProvider = new GithubAuthProvider();
+
+// Initialize messaging if supported
+let messaging = null;
+isSupported().then(isSupported => {
+  if (isSupported) {
+    messaging = getMessaging(app);
+  }
+});
+
+export { 
+  app, 
+  db, 
+  storage, 
+  messaging, 
+  auth,
+  googleProvider,
+  githubProvider 
+}; 
