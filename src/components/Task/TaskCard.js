@@ -31,6 +31,10 @@ import SubtaskList from './SubtaskList';
 import TaskStatus from './TaskStatus';
 import { useToast } from '../../context/ToastContext';
 import TaskView from './TaskView';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import CheckIcon from '@mui/icons-material/Check';
+import PauseIcon from '@mui/icons-material/Pause';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 
 const TaskCard = ({ task, projectId, onEdit, onDelete, onUpdate }) => {
   const { user } = useAuth();
@@ -223,30 +227,94 @@ const TaskCard = ({ task, projectId, onEdit, onDelete, onUpdate }) => {
             onUpdate={onUpdate}
           />
 
-          {/* Status update buttons for developers */}
-          {user?.role === 'developer' && task.assignee === user.uid && (
-            <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+          {/* Status update buttons for assigned users */}
+          {task.assignee === user?.uid && (
+            <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               {task.status === 'To Do' && (
                 <LoadingButton
                   size="small"
                   variant="contained"
                   color="primary"
-                  onClick={() => handleStatusUpdate('In Progress')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStatusUpdate('In Progress');
+                  }}
                   loading={loading}
+                  startIcon={<PlayArrowIcon />}
+                  sx={{ 
+                    boxShadow: 2,
+                    '&:hover': { boxShadow: 4 }
+                  }}
                 >
                   Start Working
                 </LoadingButton>
               )}
               
               {task.status === 'In Progress' && (
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', width: '100%' }}>
+                  <LoadingButton
+                    size="small"
+                    variant="contained"
+                    color="success"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleStatusUpdate('Done');
+                    }}
+                    loading={loading}
+                    startIcon={<CheckIcon />}
+                    sx={{ 
+                      boxShadow: 2,
+                      flexGrow: 1,
+                      '&:hover': { boxShadow: 4 }
+                    }}
+                  >
+                    Complete Task
+                  </LoadingButton>
+                  <LoadingButton
+                    size="small"
+                    variant="outlined"
+                    color="warning"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleStatusUpdate('On Hold');
+                    }}
+                    loading={loading}
+                    startIcon={<PauseIcon />}
+                  >
+                    Pause
+                  </LoadingButton>
+                </Box>
+              )}
+              
+              {task.status === 'On Hold' && (
                 <LoadingButton
                   size="small"
                   variant="contained"
-                  color="success"
-                  onClick={() => handleStatusUpdate('Done')}
+                  color="primary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStatusUpdate('In Progress');
+                  }}
                   loading={loading}
+                  startIcon={<PlayArrowIcon />}
                 >
-                  Mark as Done
+                  Resume
+                </LoadingButton>
+              )}
+              
+              {task.status === 'Done' && (
+                <LoadingButton
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStatusUpdate('To Do');
+                  }}
+                  loading={loading}
+                  startIcon={<RestartAltIcon />}
+                >
+                  Reopen
                 </LoadingButton>
               )}
             </Box>

@@ -38,7 +38,8 @@ import {
   Select,
   Tooltip,
   Paper,
-  Chip
+  Chip,
+  CardActions
 } from "@mui/material";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -86,6 +87,16 @@ import { TaskService } from '../../services/TaskService';
 import LoadingSpinner from '../LoadingSpinner';
 import { LoadingButton } from '@mui/lab';
 import CustomLoader from '../CustomLoader';
+import TaskTimer from './TaskTimer';
+import { PlayArrow, Event, Star } from '@mui/icons-material';
+
+// Define severity colors for consistent visual styling
+const severityColors = {
+  success: '#22c55e', // bright green
+  error: '#ef4444',   // bright red
+  info: '#1976d2',    // bright blue
+  warning: '#f59e0b'  // bright yellow/orange
+};
 
 const TaskItem = ({ task, projectId, onEdit, onDelete }) => {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -520,7 +531,7 @@ const TaskColumn = () => {
       }
     });
 
-  // Add drag and drop handler
+  // Update the task drag and drop handler to notify admins
   const handleDragEnd = async (result) => {
     if (!result.destination) return;
 
@@ -548,6 +559,79 @@ const TaskColumn = () => {
         ...currentProject,
         tasks: updatedTasks
       });
+
+      // Add this after a task has been moved to a new status
+      if (destination && source.droppableId !== destination.droppableId) {
+        const task = updatedTasks.find(t => t.id === taskId);
+        const newStatus = destination.droppableId;
+        
+        // Start timer if moved to "In Progress"
+        if (newStatus === 'In Progress' && source.droppableId !== 'In Progress') {
+          try {
+            await TaskService.startTaskTimer(projectId, task.id, currentUser.uid);
+            
+            // Notify admins
+            const notification = {
+              type: 'task_started',
+              taskId: task.id,
+              taskName: task.name,
+              projectId: projectId,
+              projectName: currentProject.name,
+              userId: currentUser.uid,
+              userName: currentUser.displayName || currentUser.email,
+              createdAt: new Date().toISOString(),
+              message: `${currentUser.displayName || currentUser.email} started working on task "${task.name}"`,
+              taskDetails: {
+                priority: task.priority,
+                dueDate: task.dueDate,
+                description: task.description
+              }
+            };
+            
+            await NotificationService.sendNotificationToAdmins(notification);
+            console.log('Notification sent to admins about task start');
+          } catch (error) {
+            console.error('Error sending notification or starting timer:', error);
+          }
+        }
+        
+        // Stop timer if moved from "In Progress"
+        if (source.droppableId === 'In Progress' && newStatus !== 'In Progress') {
+          try {
+            const timerResult = await TaskService.stopTaskTimer(projectId, task.id, currentUser.uid, newStatus);
+            
+            // If complete, send notification with time data
+            if (newStatus === 'Done') {
+              const timeSpent = timerResult.totalTimeSpent ? 
+                TaskService.formatTimeSpent(timerResult.totalTimeSpent) : 
+                'Unknown time';
+                
+              // Notify admins about completion
+              const notification = {
+                type: 'task_completed',
+                taskId: task.id,
+                taskName: task.name,
+                projectId: projectId,
+                projectName: currentProject.name,
+                userId: currentUser.uid,
+                userName: currentUser.displayName || currentUser.email,
+                createdAt: new Date().toISOString(),
+                message: `${currentUser.displayName || currentUser.email} completed task "${task.name}" (Time spent: ${timeSpent})`,
+                timeData: {
+                  totalTimeSpent: timerResult.totalTimeSpent,
+                  formattedTime: timeSpent,
+                  entries: timerResult.timeEntries?.slice(-5) || []
+                }
+              };
+              
+              await NotificationService.sendNotificationToAdmins(notification);
+              showToast(`Task completed! You spent ${timeSpent} on this task.`, 'success');
+            }
+          } catch (error) {
+            console.error('Error stopping timer or sending notification:', error);
+          }
+        }
+      }
     } catch (error) {
       setError('Failed to move task: ' + error.message);
       // Revert optimistic update
@@ -996,195 +1080,220 @@ const TaskColumn = () => {
   }, [currentUser]);
 
   // Update the task card to show assignment UI only for proper roles
-  const TaskCard = ({ task }) => (
-    <Card 
-      onClick={() => handleOpenModal(task)}
-      sx={{ 
-        cursor: 'pointer',
-        '&:hover': { boxShadow: 3 }
-      }}
-    >
-      <CardContent>
-        {/* Header Section */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-          <Typography variant="h6">{task.name}</Typography>
-          <IconButton 
-            onClick={(e) => {
-              e.stopPropagation();
-              handleMenuClick(e, task);
-            }}
-          >
-            <MoreVert />
-          </IconButton>
-        </Box>
-
-        {/* Description */}
-        <Typography color="textSecondary" gutterBottom>
-          {task.description}
-        </Typography>
-
-        {/* Progress Bar */}
-        <Box sx={{ mt: 2, mb: 2 }}>
-          <LinearProgress 
-            variant="determinate" 
-            value={task.progress || 0}
-            sx={{ height: 6, borderRadius: 3 }}
+  const TaskCard = ({ task }) => {
+    // Format time spent
+    const formatTime = (timeInSeconds) => {
+      if (!timeInSeconds) return '0h 0m';
+      
+      const hours = Math.floor(timeInSeconds / 3600);
+      const minutes = Math.floor((timeInSeconds % 3600) / 60);
+      
+      return `${hours}h ${minutes}m`;
+    };
+    
+    // Get task priority color
+    const getPriorityColor = (priority) => {
+      switch(priority?.toLowerCase()) {
+        case 'high': return 'error';
+        case 'medium': return 'warning';
+        case 'low': return 'success';
+        default: return 'default';
+      }
+    };
+    
+    // Calculate due date status
+    const getDueDateStatus = () => {
+      if (!task.dueDate) return null;
+      
+      const dueDate = new Date(task.dueDate);
+      const today = new Date();
+      const diffTime = dueDate - today;
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays < 0) return { color: 'error', text: 'Overdue' };
+      if (diffDays === 0) return { color: 'error', text: 'Due today' };
+      if (diffDays <= 2) return { color: 'warning', text: `Due in ${diffDays} day${diffDays > 1 ? 's' : ''}` };
+      return { color: 'default', text: `Due in ${diffDays} days` };
+    };
+    
+    const dueStatus = getDueDateStatus();
+  
+    return (
+      <Card 
+        onClick={() => handleOpenModal(task)}
+        sx={{ 
+          cursor: 'pointer',
+          '&:hover': { boxShadow: 3 },
+          border: task.active ? `2px solid ${severityColors.info}` : 'none',
+          position: 'relative'
+        }}
+      >
+        {task.priority && (
+          <Box 
+            sx={{ 
+              position: 'absolute', 
+              top: 0, 
+              right: 0, 
+              width: 0, 
+              height: 0, 
+              borderStyle: 'solid',
+              borderWidth: '0 25px 25px 0',
+              borderColor: `transparent ${task.priority === 'high' ? '#ef4444' : 
+                          task.priority === 'medium' ? '#f59e0b' : '#22c55e'} transparent transparent`,
+              zIndex: 1
+            }} 
           />
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            Progress: {task.progress || 0}%
-          </Typography>
-        </Box>
+        )}
+        
+        <CardContent>
+          {/* Header Section */}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+            <Typography variant="h6" sx={{ mr: 4 }}>{task.name}</Typography>
+            <IconButton 
+              onClick={(e) => {
+                e.stopPropagation();
+                handleMenuClick(e, task);
+              }}
+              sx={{ zIndex: 2 }}
+            >
+              <MoreVert />
+            </IconButton>
+          </Box>
 
-        {/* Subtasks Section */}
-        {task.subtasks?.length > 0 && (
-          <Box sx={{ mt: 2, mb: 2 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Subtasks ({task.subtasks.filter(st => st.completed).length}/{task.subtasks.length})
+          {/* Description - truncate if too long */}
+          {task.description && (
+            <Typography 
+              color="textSecondary" 
+              gutterBottom
+              sx={{
+                display: '-webkit-box',
+                overflow: 'hidden',
+                WebkitBoxOrient: 'vertical',
+                WebkitLineClamp: 2
+              }}
+            >
+              {task.description}
             </Typography>
-            <List dense>
-              {task.subtasks.slice(0, 3).map((subtask) => (
-                <ListItem key={subtask.id} disablePadding>
-                  <ListItemIcon>
-                    <Checkbox
-                      edge="start"
-                      checked={subtask.completed}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSubtaskToggle(task.id, subtask.id);
-                      }}
-                    />
-                  </ListItemIcon>
-                  <ListItemText 
-                    primary={subtask.title}
-                    sx={{
-                      textDecoration: subtask.completed ? 'line-through' : 'none',
-                      color: subtask.completed ? 'text.secondary' : 'text.primary'
-                    }}
-                  />
-                </ListItem>
-              ))}
-              {task.subtasks.length > 3 && (
-                <Typography variant="caption" color="text.secondary">
-                  +{task.subtasks.length - 3} more subtasks
+          )}
+
+          {/* Progress Bar */}
+          <Box sx={{ mt: 2, mb: 2 }}>
+            <LinearProgress 
+              variant="determinate" 
+              value={task.progress || 0}
+              sx={{ 
+                height: 6, 
+                borderRadius: 3,
+                backgroundColor: 'rgba(0,0,0,0.1)',
+                '& .MuiLinearProgress-bar': {
+                  backgroundColor: task.progress >= 100 ? severityColors.success : severityColors.info
+                }
+              }}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              Progress: {task.progress || 0}%
+            </Typography>
+          </Box>
+
+          {/* Time Tracking */}
+          <Box sx={{ 
+            mt: 2, 
+            p: 1, 
+            backgroundColor: 'rgba(0,0,0,0.03)', 
+            borderRadius: 1,
+            border: '1px solid rgba(0,0,0,0.08)'
+          }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                <AccessTime fontSize="small" color="action" />
+                <Typography variant="body2" fontWeight="medium">Time</Typography>
+              </Box>
+              
+              {task.active && (
+                <Chip 
+                  label="Active" 
+                  color="primary" 
+                  size="small"
+                  icon={<PlayArrow fontSize="small" />}
+                />
+              )}
+            </Box>
+            
+            <Box sx={{ mt: 1, display: 'flex', justifyContent: 'space-between' }}>
+              <Typography variant="body2">
+                Spent: <b>{formatTime(task.timeSpent || 0)}</b>
+              </Typography>
+              
+              {task.timeEstimate && (
+                <Typography variant="body2">
+                  Est: <b>{formatTime(task.timeEstimate)}</b>
                 </Typography>
               )}
-            </List>
-          </Box>
-        )}
-
-        {/* Time Tracking */}
-        {(task.timeEstimate || task.timeSpent) && (
-          <Box sx={{ mt: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
-            <AccessTime fontSize="small" color="action" />
-            <Typography variant="body2" color="text.secondary">
-              {task.timeSpent || 0}h / {task.timeEstimate || 0}h
-            </Typography>
-          </Box>
-        )}
-
-        {/* Attachments & Comments Summary */}
-        <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
-          {task.attachments?.length > 0 && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <AttachFileIcon fontSize="small" color="action" />
-              <Typography variant="body2" color="text.secondary">
-                {task.attachments.length} files
-              </Typography>
             </Box>
-          )}
-          {task.comments?.length > 0 && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <ChatBubbleOutlineIcon fontSize="small" color="action" />
-              <Typography variant="body2" color="text.secondary">
-                {task.comments.length} comments
-              </Typography>
-            </Box>
-          )}
-        </Box>
-
-        {/* Dependencies */}
-        {task.dependencies?.length > 0 && (
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="body2" color="text.secondary">
-              Dependencies: {task.dependencies.length}
-            </Typography>
           </Box>
-        )}
 
-        {/* Footer Section */}
-        <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-          {/* Assignee */}
-          {task.assignee && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Avatar 
-                src={users.find(u => u.id === task.assignee)?.photoURL}
-                sx={{ width: 24, height: 24 }}
-              >
-                {users.find(u => u.id === task.assignee)?.name?.charAt(0)}
-              </Avatar>
-              <Typography variant="body2">
-                {users.find(u => u.id === task.assignee)?.name || 
-                 users.find(u => u.id === task.assignee)?.email || 
-                 'Unassigned'}
-              </Typography>
-            </Box>
-          )}
+          {/* Footer Section */}
+          <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {/* Assignee */}
+            {task.assignee && (
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 0.5,
+                backgroundColor: 'rgba(0,0,0,0.03)',
+                borderRadius: 1,
+                px: 1,
+                py: 0.5
+              }}>
+                <Avatar 
+                  src={users.find(u => u.id === task.assignee)?.photoURL}
+                  sx={{ width: 24, height: 24 }}
+                >
+                  {users.find(u => u.id === task.assignee)?.name?.charAt(0) || 'U'}
+                </Avatar>
+                <Typography variant="body2" noWrap sx={{ maxWidth: 100 }}>
+                  {users.find(u => u.id === task.assignee)?.name || 
+                   users.find(u => u.id === task.assignee)?.email || 
+                   'Unassigned'}
+                </Typography>
+              </Box>
+            )}
 
-          {/* Status Chip */}
-          <Chip 
-            label={task.status} 
-            color={
-              task.status === 'Done' ? 'success' : 
-              task.status === 'In Progress' ? 'warning' : 
-              'default'
-            }
-            size="small"
-          />
+            {/* Status Chip */}
+            <Chip 
+              label={task.status} 
+              color={
+                task.status === 'Done' ? 'success' : 
+                task.status === 'In Progress' ? 'warning' : 
+                'default'
+              }
+              size="small"
+            />
 
-          {/* Priority Chip */}
-          <Chip 
-            label={task.priority} 
-            color={
-              task.priority === 'high' ? 'error' :
-              task.priority === 'medium' ? 'warning' :
-              'default'
-            }
-            size="small"
-          />
-
-          {/* Due Date */}
-          {task.dueDate && (
-            <Typography variant="caption" color="text.secondary">
-              Due: {new Date(task.dueDate).toLocaleDateString()}
-            </Typography>
-          )}
-        </Box>
-
-        {/* Notification Indicators */}
-        {task.notifications && (
-          <Box sx={{ mt: 1, display: 'flex', gap: 0.5 }}>
-            {task.notifications.dueDate && (
-              <NotificationsIcon fontSize="small" color="action" />
+            {/* Due Date */}
+            {dueStatus && (
+              <Chip
+                icon={<Event fontSize="small" />}
+                label={dueStatus.text}
+                color={dueStatus.color}
+                size="small"
+              />
             )}
           </Box>
-        )}
 
-        {/* Project Manager Actions */}
-        {task.status === 'Done' && currentUser?.role === 'project_manager' && (
-          <LoadingButton
-            size="small"
-            variant="contained"
-            color="success"
-            onClick={() => handleVerifyTask(task.id)}
-            loading={verifyingTaskId === task.id}
-            disabled={verifyingTaskId !== null}
-          >
-            Verify Task
-          </LoadingButton>
-        )}
-      </CardContent>
-    </Card>
-  );
+          {/* Admin Review Indicator */}
+          {task.reviewed && (
+            <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Star fontSize="small" color="warning" />
+              <Typography variant="body2" color="text.secondary">
+                Reviewed: {task.rating}/5
+              </Typography>
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   // Add task assignment handler
   const handleAssignTask = async (taskId, assigneeId) => {

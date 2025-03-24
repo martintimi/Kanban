@@ -12,7 +12,8 @@ import {
   IconButton,
   useMediaQuery,
   Divider,
-  ListItemButton
+  ListItemButton,
+  Collapse
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -23,37 +24,54 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import BusinessIcon from '@mui/icons-material/Business';
 import MenuIcon from '@mui/icons-material/Menu';
 import CloseIcon from '@mui/icons-material/Close';
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import AssessmentIcon from '@mui/icons-material/Assessment';
+import TimelineIcon from '@mui/icons-material/Timeline';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import ExpandLess from '@mui/icons-material/ExpandLess';
+import ExpandMore from '@mui/icons-material/ExpandMore';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOrganization } from '../context/OrganizationContext';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 
-const SideNav = () => {
+const SideNav = ({ open, handleDrawerToggle }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { selectedOrg, organizations, loading: orgLoading } = useOrganization();
   const { user } = useAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   
   // Effect to close drawer when navigating on mobile
   useEffect(() => {
-    if (isMobile) {
-      setMobileOpen(false);
+    if (isMobile && open) {
+      handleDrawerToggle();
     }
   }, [location.pathname, isMobile]);
 
-  const toggleDrawer = () => {
-    setMobileOpen(!mobileOpen);
+  const handleAdminMenuToggle = () => {
+    setAdminMenuOpen(!adminMenuOpen);
   };
 
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
+  const isProjectManager = user?.role === 'project_manager';
+
   const menuItems = [
-    { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+    { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
     { text: 'Projects', icon: <FolderIcon />, path: '/projects' },
+    { text: 'My Tasks', icon: <AssignmentIcon />, path: '/my-tasks' },
     { text: 'Team', icon: <PeopleIcon />, path: '/team' },
     { text: 'Calendar', icon: <CalendarTodayIcon />, path: '/calendar' },
+    { text: 'Organizations', icon: <BusinessIcon />, path: '/organizations' },
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
+  ];
+
+  const adminMenuItems = [
+    { text: 'Team Performance', icon: <AssessmentIcon />, path: '/admin/team-performance' },
+    { text: 'Resource Management', icon: <TimelineIcon />, path: '/admin/resource-management' },
+    { text: 'Project History', icon: <AssignmentIcon />, path: '/admin/project-history' },
   ];
 
   // Don't render create organization prompt during loading
@@ -78,7 +96,7 @@ const SideNav = () => {
           <Button
             variant="contained"
             startIcon={<BusinessIcon />}
-            onClick={() => navigate('/organization-management')}
+            onClick={() => navigate('/organizations')}
             sx={{ mt: 1 }}
           >
             CREATE ORGANIZATION
@@ -91,136 +109,124 @@ const SideNav = () => {
     return null;
   };
 
-  // Mobile toggle button that sits at the top of the page
-  const mobileToggle = (
-    <IconButton
-      color="inherit"
-      aria-label="open drawer"
-      edge="start"
-      onClick={toggleDrawer}
-      sx={{
-        position: 'fixed',
-        top: 12,
-        left: mobileOpen ? 250 : 16,
-        zIndex: 1300,
-        bgcolor: 'background.paper',
-        boxShadow: 2,
-        borderRadius: '50%',
-        transition: 'left 0.3s',
-        display: { xs: 'flex', md: 'none' }
-      }}
-    >
-      {mobileOpen ? <CloseIcon /> : <MenuIcon />}
-    </IconButton>
-  );
-
-  const drawerWidth = 240;
-
   const drawerContent = (
-    <Box sx={{ overflow: 'auto', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <List sx={{ pt: 8 }}>
+    <Box sx={{ width: 240, height: '100%' }}>
+      <Box sx={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between',
+        p: 2,
+        borderBottom: 1, 
+        borderColor: 'divider'
+      }}>
+        <Typography variant="h6" component="div" sx={{ display: 'flex', alignItems: 'center' }}>
+          <DashboardIcon sx={{ mr: 1 }} />
+          KanbanTool
+        </Typography>
+        {isMobile && (
+          <IconButton onClick={handleDrawerToggle}>
+            <CloseIcon />
+          </IconButton>
+        )}
+      </Box>
+      
+      {renderContent()}
+      
+      <List>
         {menuItems.map((item) => (
           <ListItemButton
-            component={Link}
-            to={item.path}
+            key={item.text}
+            onClick={() => navigate(item.path)}
             selected={location.pathname === item.path}
             sx={{
-              mb: 1,
-              borderRadius: 1,
-              '&.Mui-selected': {
-                bgcolor: 'rgba(63, 81, 181, 0.12)',
-                '&:hover': {
-                  bgcolor: 'rgba(63, 81, 181, 0.18)',
-                },
-                '&::before': {
-                  content: '""',
-                  position: 'absolute',
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: 4,
-                  bgcolor: '#3f51b5',
-                  borderRadius: '0 4px 4px 0',
-                }
-              },
-              '&:hover': {
-                bgcolor: 'rgba(63, 81, 181, 0.08)',
-              }
+              borderLeft: location.pathname === item.path ? `4px solid ${theme.palette.primary.main}` : '4px solid transparent',
+              pl: 2
             }}
           >
-            <ListItemIcon sx={{ color: location.pathname === item.path ? '#3f51b5' : 'inherit' }}>
-              {item.icon}
-            </ListItemIcon>
-            <ListItemText 
-              primary={item.text} 
-              primaryTypographyProps={{ 
-                fontWeight: location.pathname === item.path ? 'bold' : 'regular' 
-              }} 
-            />
+            <ListItemIcon>{item.icon}</ListItemIcon>
+            <ListItemText primary={item.text} />
           </ListItemButton>
         ))}
-      </List>
-
-      <Box sx={{ mt: 'auto', borderTop: 1, borderColor: 'divider', p: 2 }}>
-        {selectedOrg && (
-          <Box>
-            <Typography variant="subtitle2">Organization</Typography>
-            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-              {selectedOrg.name}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {user?.role || 'Member'}
-            </Typography>
-          </Box>
+        
+        {/* Admin Menu - only shown to admins and project managers */}
+        {(isAdmin || isProjectManager) && (
+          <>
+            <Divider sx={{ my: 2 }} />
+            <ListItemButton 
+              onClick={handleAdminMenuToggle}
+              sx={{
+                py: 1.5,
+                px: 2,
+                '&:hover': {
+                  backgroundColor: theme.palette.action.hover,
+                }
+              }}
+            >
+              <ListItemIcon>
+                <AdminPanelSettingsIcon />
+              </ListItemIcon>
+              <ListItemText 
+                primary="Admin Tools" 
+                primaryTypographyProps={{
+                  fontWeight: 'medium'
+                }}
+              />
+              {adminMenuOpen ? <ExpandLess /> : <ExpandMore />}
+            </ListItemButton>
+            <Collapse in={adminMenuOpen} timeout="auto" unmountOnExit>
+              <List component="div" disablePadding>
+                {adminMenuItems.map((item) => (
+                  <ListItemButton
+                    key={item.text}
+                    onClick={() => navigate(item.path)}
+                    selected={location.pathname === item.path}
+                    sx={{
+                      pl: 4,
+                      py: 1.5,
+                      borderLeft: location.pathname === item.path ? `4px solid ${theme.palette.primary.main}` : '4px solid transparent',
+                      '&:hover': {
+                        backgroundColor: theme.palette.action.hover,
+                      }
+                    }}
+                  >
+                    <ListItemIcon>{item.icon}</ListItemIcon>
+                    <ListItemText 
+                      primary={item.text}
+                      primaryTypographyProps={{
+                        fontSize: '0.9rem'
+                      }}
+                    />
+                  </ListItemButton>
+                ))}
+              </List>
+            </Collapse>
+          </>
         )}
-        {renderContent()}
+      </List>
+      
+      <Box sx={{ position: 'absolute', bottom: 0, width: '100%', p: 2 }}>
+        <Typography variant="caption" color="text.secondary">
+          {selectedOrg?.name ? `Organization: ${selectedOrg.name}` : 'No organization selected'}
+        </Typography>
       </Box>
     </Box>
   );
 
   return (
     <>
-      {/* Mobile toggle button */}
-      {mobileToggle}
-
-      {/* Mobile drawer (temporary) */}
       <Drawer
-        variant="temporary"
-        open={mobileOpen}
-        onClose={toggleDrawer}
-        ModalProps={{
-          keepMounted: true,
-        }}
+        variant={isMobile ? 'temporary' : 'permanent'}
+        open={isMobile ? open : true}
+        onClose={handleDrawerToggle}
         sx={{
-          display: { xs: 'block', md: 'none' },
-          '& .MuiDrawer-paper': {
-            width: drawerWidth,
-            boxSizing: 'border-box',
-            top: '64px',
-            height: 'calc(100% - 64px)',
-            pt: 0,
-          },
-        }}
-      >
-        {drawerContent}
-      </Drawer>
-
-      {/* Desktop drawer (permanent) */}
-      <Drawer
-        variant="permanent"
-        sx={{
-          width: drawerWidth,
+          width: 240,
           flexShrink: 0,
-          '& .MuiDrawer-paper': {
-            width: drawerWidth,
+          [`& .MuiDrawer-paper`]: { 
+            width: 240, 
             boxSizing: 'border-box',
-            borderRight: '1px solid',
-            borderColor: 'divider',
-            height: '100%',
-            top: '64px',
-            pt: 0,
+            backgroundColor: theme.palette.background.paper,
+            boxShadow: 1
           },
-          display: { xs: 'none', md: 'block' },
         }}
       >
         {drawerContent}

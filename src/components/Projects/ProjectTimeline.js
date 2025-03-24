@@ -25,6 +25,7 @@ import {
   PlayArrow as PlayArrowIcon
 } from '@mui/icons-material';
 import { useProjects } from '../../context/ProjectContext';
+import LoadingSpinner from '../LoadingSpinner';
 
 const ProjectTimeline = () => {
   const { projects, loading } = useProjects();
@@ -76,11 +77,7 @@ const ProjectTimeline = () => {
   };
 
   if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-        <CircularProgress />
-      </Box>
-    );
+    return <LoadingSpinner message="Loading project timeline..." />;
   }
 
   if (!projects || projects.length === 0) {

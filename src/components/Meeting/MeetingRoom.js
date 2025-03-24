@@ -20,7 +20,8 @@ import {
   List,
   ListItem,
   ListItemText,
-  CircularProgress
+  CircularProgress,
+  ListItemAvatar
 } from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import {
@@ -627,6 +628,7 @@ const MeetingRoom = ({ roomId, onLeave }) => {
   const audioAnalyser = useRef(null);
   const audioDataArray = useRef(new Uint8Array(1024));
   const animationFrameId = useRef(null);
+  const prevWaitingRoomParticipantsRef = useRef([]);
 
   // Dialog states
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
@@ -655,30 +657,51 @@ const MeetingRoom = ({ roomId, onLeave }) => {
       setInviteDialogOpen(false);
       showToast('Creating invitation...', 'info');
 
-      // Generate a unique access token for the guest
-      const guestToken = Math.random().toString(36).substring(2, 15);
+      // Generate a longer unique access token for security
+      const timestamp = Date.now().toString(36);
+      const random1 = Math.random().toString(36).substring(2, 10);
+      const random2 = Math.random().toString(36).substring(2, 10);
+      const guestToken = `${timestamp}-${random1}-${random2}`;
       
-      // Create a direct invitation record
-      const inviteData = {
-        meetingId: roomId,
-        email: inviteEmail,
-        hostId: user?.uid,
-        hostName: user?.displayName || user?.email,
-        createdAt: new Date(),
-        status: 'pending',
-        guestToken: guestToken,
-        expiresAt: new Date(Date.now() + (24 * 60 * 60 * 1000)) // 24 hours from now
-      };
+      console.log('Generated secure token:', guestToken);
       
-      // Save the invitation directly
-      await meetingService.createDirectInvitation(roomId, inviteEmail, inviteData);
+      // Get meeting details to include in invite
+      const meeting = await meetingService.getMeeting(roomId);
       
-      // Use a simple meeting URL instead of tunnel
-      const meetingLink = `${window.location.origin}/meetings/${roomId}?token=${guestToken}`;
+      // Use the appropriate domain based on environment
+      // For production (Vercel)
+      const publicDomain = window.location.origin;
+      const meetingLink = `${publicDomain}/meetings/${roomId}?token=${guestToken}`;
       
-      // Save the full invite link
+      // For local testing in development
+      const localLink = `http://localhost:3001/meetings/${roomId}?token=${guestToken}`;
+      console.log('Local testing link:', localLink);
+      
+      // Save the invite link for display
       setInviteLink(meetingLink);
       setInviteSuccessDialogOpen(true);
+      
+      // Save the invitation to the database
+      try {
+        // Create a direct invitation record
+        const inviteData = {
+          meetingId: roomId,
+          email: inviteEmail,
+          hostId: user?.uid,
+          hostName: user?.displayName || user?.email || 'Host',
+          createdAt: new Date(),
+          status: 'pending',
+          guestToken: guestToken,
+          meetingTitle: meeting.title || 'Meeting',
+          expiresAt: new Date(Date.now() + (24 * 60 * 60 * 1000)) // 24 hours from now
+        };
+        
+        await meetingService.createDirectInvitation(roomId, inviteEmail, inviteData);
+        console.log('Invitation saved to database');
+      } catch (dbError) {
+        console.error('Error saving invitation to database:', dbError);
+        // The link will still work via our token validation even if DB save fails
+      }
       
       setInviteEmail('');
       showToast('Invitation created successfully!', 'success');
@@ -692,98 +715,221 @@ const MeetingRoom = ({ roomId, onLeave }) => {
   useEffect(() => {
     const initialize = async () => {
       try {
-        console.log('Initializing meeting room for user:', user?.uid);
+        // First, check if there's a token in the URL
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token');
         
-        // Get meeting details first
-        const meeting = await meetingService.getMeeting(roomId);
-        console.log('Meeting details:', meeting);
+        console.log('Initialization started. Token in URL:', token ? 'Yes (truncated): ' + token.substring(0, 5) + '...' : 'No');
         
-        // Determine if current user is the host
-        const isHost = meeting.hostId === user?.uid;
-        setIsHost(isHost);
-        console.log('User is host:', isHost);
-
-        // If you're the host, you have immediate access
-        if (isHost) {
-          console.log('User is host - initializing media');
-          await initializeMedia();
-          await setupWebRTC();
+        // For direct token-based access (invite links), we need special handling
+        if (token) {
+          console.log('Token detected in URL, validating direct access');
           
-          // Subscribe to waiting room changes if host
-          const unsubWaitingRoom = meetingService.onWaitingRoomChange(roomId, (participants) => {
-            setWaitingRoomParticipants(participants);
-          });
-          
-          return () => unsubWaitingRoom();
-        }
+          // Validate the meeting exists even for token access
+          try {
+            const meeting = await meetingService.getMeeting(roomId);
+            console.log('Meeting details found:', meeting.id);
+            
+            // If user is logged in and is the host, give immediate access
+            if (user && meeting.hostId === user.uid) {
+              console.log('User is host - initializing media');
+              setIsHost(true);
+        await initializeMedia();
+        await setupWebRTC();
         
-        // Check if user is already a participant
-        const isParticipant = meeting.participants && meeting.participants[user?.uid];
-        console.log('User is participant:', isParticipant);
-        
-        // If already a participant, proceed
-        if (isParticipant) {
-          console.log('User is existing participant - initializing media');
-          await initializeMedia();
-          await setupWebRTC();
-          return;
-        }
-
-        // For non-hosts and non-participants, check guest access
-        const params = new URLSearchParams(location.search);
-        const guestToken = params.get('token');
-        const isHostParam = params.get('ishost') === 'true';
-        console.log('Guest token:', guestToken, 'Is host param:', isHostParam);
-        
-        // If URL indicates this is the host (from meeting list)
-        if (isHostParam && user?.uid === meeting.hostId) {
-          console.log('URL indicates user is host - initializing media');
-          setIsHost(true);
-          await initializeMedia();
-          await setupWebRTC();
-          
-          // Subscribe to waiting room changes since this is host
-          const unsubWaitingRoom = meetingService.onWaitingRoomChange(roomId, (participants) => {
-            setWaitingRoomParticipants(participants);
-          });
-          
-          return () => unsubWaitingRoom();
-        }
-
-        if (guestToken) {
-          // Validate guest token
-          const isValid = await meetingService.validateGuestToken(roomId, guestToken);
-          console.log('Token validation result:', isValid);
-          
-          if (isValid) {
-            console.log('Valid token - initializing media');
-            await initializeMedia();
-            await setupWebRTC();
-            return;
-          } else {
-            showToast('Invalid or expired invitation link', 'error');
+              // Subscribe to waiting room changes if host
+              const unsubWaitingRoom = meetingService.onWaitingRoomChange(roomId, (participants) => {
+                console.log('Waiting room participants:', participants);
+                setWaitingRoomParticipants(participants);
+              });
+              
+              return () => unsubWaitingRoom();
+            }
+            
+            // For token-based guests, generate a guest ID using the token 
+            console.log('User is a guest with token - validating token access');
+            const guestId = await meetingService.validateAndJoinWithToken(roomId, token);
+            
+            // Generate a recognizable guest name with the token prefix
+            const tokenPrefix = token.split('-')[0] || token.substring(0, 4); 
+            const guestName = `Guest (${tokenPrefix})`;
+            
+            console.log('Generated guest ID for token access:', guestId);
+            console.log('Adding to waiting room as guest with token');
+            
+            // Always put guests in waiting room first
+            setIsInWaitingRoom(true);
+            
+            // Add to waiting room with the guest ID
+            await meetingService.addToWaitingRoom(roomId, {
+              id: guestId,
+              name: guestName,
+              isGuest: true,
+              token: token,
+              userAgent: navigator.userAgent
+            });
+            
+            console.log('Successfully added to waiting room, setting up admission listener');
+            
+            // Subscribe to this guest's admission status
+            const unsubAdmission = meetingService.onParticipantAdmitted(roomId, guestId, async (isAdmitted) => {
+              console.log('Admission status change detected:', isAdmitted);
+              if (isAdmitted) {
+                console.log('Guest admitted to meeting:', guestId);
+                setIsInWaitingRoom(false);
+                
+                try {
+                  await initializeMedia();
+                  await setupWebRTC();
+                  
+                  // Join the meeting officially once media is ready
+                  await meetingService.joinMeeting(roomId, {
+                    id: guestId,
+                    name: guestName,
+                    isGuest: true
+                  });
+                } catch (mediaError) {
+                  console.error('Error initializing media after admission:', mediaError);
+                  showToast('Could not access your camera or microphone, but you can still participate', 'warning');
+                  
+                  // Join even without media
+                  await meetingService.joinMeeting(roomId, {
+                    id: guestId,
+                    name: guestName,
+                    isGuest: true
+                  });
+                }
+              }
+            });
+            
+            return () => {
+              if (unsubAdmission) unsubAdmission();
+        };
+      } catch (error) {
+            console.error('Error validating meeting for token access:', error);
+            showToast('Invalid meeting or token', 'error');
             onLeave();
             return;
           }
-        }
+        } else {
+          // Standard room access for authenticated users (no token)
+          console.log('No token, checking authenticated access');
+          
+          // Get meeting details
+          const meeting = await meetingService.getMeeting(roomId);
+          console.log('Meeting details:', meeting);
+          
+          // Check if user is authenticated
+          if (!user) {
+            console.log('User not authenticated, redirecting to login');
+            showToast('Please log in to join the meeting', 'error');
+            onLeave();
+            return;
+          }
+          
+          // Determine if current user is the host
+          const isHost = user && meeting.hostId === user.uid;
+          setIsHost(isHost);
+          console.log('User is host:', isHost);
 
-        // If none of the above, add to waiting room
-        console.log('Adding user to waiting room');
-        setIsInWaitingRoom(true);
-        await meetingService.addToWaitingRoom(roomId, {
-          id: user?.uid || 'guest_' + Date.now(),
-          name: user?.displayName || 'Guest',
-          email: user?.email,
-          isGuest: !user
-        });
+          // If you're the host, you have immediate access
+          if (isHost) {
+            console.log('User is host - initializing media');
+            try {
+              await initializeMedia();
+              await setupWebRTC();
+              
+              // Join the meeting as the host
+              await meetingService.joinMeeting(roomId, {
+                id: user.uid,
+                name: user.displayName || user.email,
+                email: user.email,
+                isGuest: false
+              });
+            } catch (mediaError) {
+              console.error('Error initializing host media:', mediaError);
+              
+              // Join even without media
+              await meetingService.joinMeeting(roomId, {
+                id: user.uid,
+                name: user.displayName || user.email,
+                email: user.email,
+                isGuest: false
+              });
+              
+              showToast('Could not access your camera or microphone, but you can still host the meeting', 'warning');
+            }
+            
+            // Subscribe to waiting room changes if host
+            const unsubWaitingRoom = meetingService.onWaitingRoomChange(roomId, (participants) => {
+              console.log('Waiting room participants:', participants);
+              setWaitingRoomParticipants(participants);
+            });
+            
+            return () => unsubWaitingRoom();
+          }
+          
+          // Regular authenticated user (non-host)
+          const guestId = user.uid;
+          const guestName = user.displayName || 'Authenticated User';
+          
+          console.log('Regular user joining, adding to waiting room');
+          setIsInWaitingRoom(true);
+          
+          await meetingService.addToWaitingRoom(roomId, {
+            id: guestId,
+            name: guestName,
+            email: user.email,
+            isGuest: false,
+            userAgent: navigator.userAgent
+          });
+          
+          // Subscribe to this participant's admission status
+          const unsubAdmission = meetingService.onParticipantAdmitted(roomId, guestId, async (isAdmitted) => {
+            if (isAdmitted) {
+              console.log('User admitted to meeting:', guestId);
+              setIsInWaitingRoom(false);
+              
+              try {
+                await initializeMedia();
+                await setupWebRTC();
+                
+                // Join the meeting officially once admitted
+                await meetingService.joinMeeting(roomId, {
+                  id: guestId,
+                  name: guestName,
+                  email: user.email,
+                  isGuest: false
+                });
+              } catch (mediaError) {
+                console.error('Error initializing media after admission:', mediaError);
+                
+                // Join even without media
+                await meetingService.joinMeeting(roomId, {
+                  id: guestId,
+                  name: guestName, 
+                  email: user.email,
+                  isGuest: false
+                });
+                
+                showToast('Could not access your camera or microphone, but you can still participate', 'warning');
+              }
+            }
+          });
+          
+          return () => {
+            if (unsubAdmission) unsubAdmission();
+          };
+        }
       } catch (error) {
         console.error('Error initializing meeting:', error);
         showToast('Failed to initialize meeting: ' + error.message, 'error');
+        onLeave();
       }
     };
 
     initialize();
-  }, [roomId, user, location.search]);
+  }, [roomId, user, onLeave, showToast]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -807,6 +953,8 @@ const MeetingRoom = ({ roomId, onLeave }) => {
 
   const initializeMedia = async () => {
     try {
+      // First try to get both audio and video
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: true
@@ -815,16 +963,59 @@ const MeetingRoom = ({ roomId, onLeave }) => {
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
+        }
+        return true;
+      } catch (fullError) {
+        console.warn('Could not get full media access, trying audio only:', fullError);
+        
+        // If that fails, try just audio
+        try {
+          const audioOnlyStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false
+          });
+          
+          localStreamRef.current = audioOnlyStream;
+          setIsVideoEnabled(false); // Update UI to show video is disabled
+          
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = audioOnlyStream;
+          }
+          showToast('Video access was denied. Using audio only.', 'warning');
+          return true;
+        } catch (audioError) {
+          console.error('Could not get audio access either:', audioError);
+          
+          // Last resort - create empty tracks to avoid breaking WebRTC
+          const emptyStream = new MediaStream();
+          localStreamRef.current = emptyStream;
+          
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = emptyStream;
+          }
+          
+          setIsAudioEnabled(false);
+          setIsVideoEnabled(false);
+          
+          showToast('Microphone and camera access denied. You will not be able to speak or be seen.', 'error');
+          return false;
+        }
       }
     } catch (error) {
-      console.error('Error accessing media devices:', error);
-      showToast('Failed to access camera/microphone. Please check your permissions.', 'error');
-      // Don't throw the error, just show the toast
+      console.error('Fatal error accessing media devices:', error);
+      showToast('Could not access your camera or microphone. Please check your browser permissions.', 'error');
+      return false;
     }
   };
 
   const setupWebRTC = async () => {
     try {
+      // Only proceed with WebRTC if we have media access
+      if (!localStreamRef.current) {
+        console.warn('No local stream available for WebRTC');
+        return;
+      }
+      
       const meeting = await meetingService.getMeeting(roomId);
       const currentParticipants = meeting.participants || [];
       
@@ -836,7 +1027,7 @@ const MeetingRoom = ({ roomId, onLeave }) => {
       }
     } catch (error) {
       console.error('Error setting up WebRTC:', error);
-      throw error;
+      // Don't throw, just log the error to prevent the meeting from closing
     }
   };
 
@@ -1053,6 +1244,16 @@ const MeetingRoom = ({ roomId, onLeave }) => {
     }
   };
 
+  const handleDenyParticipant = async (participantId) => {
+    try {
+      await meetingService.removeFromWaitingRoom(roomId, participantId);
+      showToast('Participant denied access', 'info');
+    } catch (error) {
+      console.error('Error denying participant:', error);
+      showToast('Failed to deny participant', 'error');
+    }
+  };
+
   const handleLeave = () => {
     // Stop all media tracks
     if (localStreamRef.current) {
@@ -1163,8 +1364,66 @@ const MeetingRoom = ({ roomId, onLeave }) => {
     }
   };
 
+  // Add notification for waiting room participants
+  useEffect(() => {
+    // Play a sound when a new participant joins the waiting room
+    if (isHost && waitingRoomParticipants.length > 0) {
+      // Find if there are any new participants compared to the previous state
+      const prevCount = prevWaitingRoomParticipantsRef.current?.length || 0;
+      if (waitingRoomParticipants.length > prevCount) {
+        // Try to play a notification sound
+        try {
+          const audio = new Audio('/sounds/notification.mp3');
+          audio.play().catch(e => console.log('Audio play failed:', e));
+        } catch (error) {
+          console.log('Could not play notification sound:', error);
+        }
+        
+        // Show a toast notification
+        showToast(`${waitingRoomParticipants[waitingRoomParticipants.length - 1].name} is waiting to join`, 'info');
+      }
+    }
+    
+    // Update the reference to the current participants
+    prevWaitingRoomParticipantsRef.current = [...waitingRoomParticipants];
+  }, [isHost, waitingRoomParticipants, showToast]);
+
+  // Add a fallback for when getUserMedia fails
+  useEffect(() => {
+    // Set up permissionchange event listener for the whole component
+    try {
+      navigator.permissions.query({ name: 'camera' }).then(permissionStatus => {
+        permissionStatus.onchange = () => {
+          if (permissionStatus.state === 'granted' && !localStreamRef.current) {
+            // If permissions were granted later, try to initialize media again
+            initializeMedia().then(success => {
+              if (success) {
+                setupWebRTC();
+              }
+            });
+          }
+        };
+      });
+      
+      navigator.permissions.query({ name: 'microphone' }).then(permissionStatus => {
+        permissionStatus.onchange = () => {
+          if (permissionStatus.state === 'granted' && (!localStreamRef.current || !isAudioEnabled)) {
+            // If microphone permission was granted later
+            initializeMedia().then(success => {
+              if (success) {
+                setupWebRTC();
+              }
+            });
+          }
+        };
+      });
+    } catch (error) {
+      console.warn('Permission query not supported in this browser:', error);
+    }
+  }, []);
+
   if (isInWaitingRoom) {
-    return (
+  return (
       <Box
         sx={{
           height: '100vh',
@@ -1172,25 +1431,50 @@ const MeetingRoom = ({ roomId, onLeave }) => {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          bgcolor: 'background.default',
+          bgcolor: '#1a1a1a',
+          color: 'white',
           p: 3
         }}
       >
-        <Typography variant="h5" gutterBottom>
-          Waiting to be admitted...
-        </Typography>
-        <Typography variant="body1" color="text.secondary" align="center">
-          The meeting host will let you in soon. Please wait.
-        </Typography>
-        <CircularProgress sx={{ mt: 4 }} />
-        <Button
-          variant="outlined"
-          color="primary"
-          onClick={onLeave}
-          sx={{ mt: 4 }}
+        <Paper
+          elevation={3}
+          sx={{
+            p: 4,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(10px)',
+            borderRadius: 2,
+            maxWidth: 500,
+            width: '100%',
+            textAlign: 'center',
+            border: '1px solid rgba(255,255,255,0.1)'
+          }}
         >
-          Leave
-        </Button>
+          <Typography variant="h5" gutterBottom sx={{ fontWeight: 500 }}>
+            Waiting for the host to admit you
+          </Typography>
+          
+          <Box sx={{ my: 3, display: 'flex', justifyContent: 'center' }}>
+            <CircularProgress sx={{ color: 'primary.main' }} />
+          </Box>
+          
+          <Typography variant="body1" sx={{ mb: 3, color: 'rgba(255,255,255,0.7)' }}>
+            The meeting host has been notified of your request to join.
+            Please wait while they review and admit you to the meeting.
+          </Typography>
+          
+          <Typography variant="body2" sx={{ mb: 3, color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>
+            You'll be automatically connected once the host lets you in.
+          </Typography>
+          
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={onLeave}
+            sx={{ mt: 2 }}
+          >
+            Cancel and leave
+          </Button>
+        </Paper>
       </Box>
     );
   }
@@ -1198,155 +1482,155 @@ const MeetingRoom = ({ roomId, onLeave }) => {
   return (
     <ThemeProvider theme={darkTheme}>
       <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <MeetingContainer>
-          <TopBar>
-            <Typography variant="h6">
-              Meeting Room
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Typography>
-                {new Date().toLocaleTimeString()}
-              </Typography>
-            </Box>
-          </TopBar>
+    <MeetingContainer>
+      <TopBar>
+        <Typography variant="h6">
+          Meeting Room
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography>
+            {new Date().toLocaleTimeString()}
+          </Typography>
+        </Box>
+      </TopBar>
 
-          <MainContent isVideoEnabled={isVideoEnabled}>
-            {reactions.map(reaction => (
-              <FloatingReaction
-                key={reaction.id}
-                sx={{
-                  left: `${reaction.x}%`,
-                  bottom: `${reaction.y}%`,
-                  transform: `rotate(${reaction.rotation}deg)`
+      <MainContent isVideoEnabled={isVideoEnabled}>
+        {reactions.map(reaction => (
+          <FloatingReaction
+            key={reaction.id}
+            sx={{
+              left: `${reaction.x}%`,
+              bottom: `${reaction.y}%`,
+              transform: `rotate(${reaction.rotation}deg)`
+            }}
+          >
+            {reaction.emoji}
+          </FloatingReaction>
+        ))}
+        
+        <ParticipantContainer isActive={isSpeaking[user.uid] && isAudioEnabled}>
+          <VideoWrapper 
+            isVideoEnabled={isVideoEnabled}
+            isScreenSharing={isScreenSharing}
+          >
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+            />
+            {!isAudioEnabled && (
+              <MutedIndicator>
+                <MicOffIcon fontSize="small" />
+                <Typography variant="body2">Microphone Off</Typography>
+              </MutedIndicator>
+            )}
+            <ParticipantOverlay 
+              isVideoEnabled={isVideoEnabled}
+              isScreenSharing={isScreenSharing}
+            >
+              <ParticipantAvatar 
+                alt={user.displayName || 'You'}
+                sx={{ 
+                  width: 150, 
+                  height: 150,
+                  fontSize: '4rem',
+                  mb: 3,
+                  border: '4px solid rgba(255,255,255,0.2)',
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+                  animation: isSpeaking[user.uid] && isAudioEnabled ? `${floatAnimation} 3s ease-in-out infinite` : 'none'
                 }}
               >
-                {reaction.emoji}
-              </FloatingReaction>
-            ))}
-            
-            <ParticipantContainer isActive={isSpeaking[user.uid] && isAudioEnabled}>
-              <VideoWrapper 
-                isVideoEnabled={isVideoEnabled}
-                isScreenSharing={isScreenSharing}
-              >
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                />
-                {!isAudioEnabled && (
-                  <MutedIndicator>
-                    <MicOffIcon fontSize="small" />
-                    <Typography variant="body2">Microphone Off</Typography>
-                  </MutedIndicator>
-                )}
-                <ParticipantOverlay 
-                  isVideoEnabled={isVideoEnabled}
-                  isScreenSharing={isScreenSharing}
-                >
-                  <ParticipantAvatar 
-                    alt={user.displayName || 'You'}
-                    sx={{ 
-                      width: 150, 
-                      height: 150,
-                      fontSize: '4rem',
-                      mb: 3,
-                      border: '4px solid rgba(255,255,255,0.2)',
-                      boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-                      animation: isSpeaking[user.uid] && isAudioEnabled ? `${floatAnimation} 3s ease-in-out infinite` : 'none'
-                    }}
-                  >
-                    {user.displayName?.[0]?.toUpperCase() || <PersonIcon sx={{ fontSize: 80 }} />}
-                  </ParticipantAvatar>
-                  <Typography variant="h4" sx={{ 
-                    fontWeight: 500,
-                    textShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                    letterSpacing: 0.5
-                  }}>
-                    {user.displayName || 'You'}
-                  </Typography>
-                  {isScreenSharing && (
-                    <Typography variant="subtitle1" sx={{ color: 'grey.400', mt: 1 }}>
-                      is sharing their screen
-                    </Typography>
-                  )}
-                </ParticipantOverlay>
-              </VideoWrapper>
-              <AudioWaveContainer isActive={isSpeaking[user.uid] && isAudioEnabled}>
-                {[20, 30, 40, 50, 40, 30, 20].map((height, i) => (
-                  <WaveBar 
-                    key={i} 
-                    height={height} 
-                    delay={i * 0.15}
-                  />
-                ))}
-              </AudioWaveContainer>
-              {isWaving && (
-                <WaveIndicator isWaving={true}>
-                  <WaveIcon />
-                </WaveIndicator>
+                {user.displayName?.[0]?.toUpperCase() || <PersonIcon sx={{ fontSize: 80 }} />}
+              </ParticipantAvatar>
+              <Typography variant="h4" sx={{ 
+                fontWeight: 500,
+                textShadow: '0 2px 4px rgba(0,0,0,0.5)',
+                letterSpacing: 0.5
+              }}>
+                {user.displayName || 'You'}
+              </Typography>
+              {isScreenSharing && (
+                <Typography variant="subtitle1" sx={{ color: 'grey.400', mt: 1 }}>
+                  is sharing their screen
+                </Typography>
               )}
-            </ParticipantContainer>
-          </MainContent>
-
-          {showReactions && (
-            <ReactionMenu>
-              <Tooltip title="Wave">
-                <ReactionButton onClick={() => addReaction('👋')}>
-                  👋
-                </ReactionButton>
-              </Tooltip>
-              <Tooltip title="Heart">
-                <ReactionButton onClick={() => addReaction('❤️')}>
-                  ❤️
-                </ReactionButton>
-              </Tooltip>
-              <Tooltip title="Thumbs Up">
-                <ReactionButton onClick={() => addReaction('👍')}>
-                  👍
-                </ReactionButton>
-              </Tooltip>
-              <Tooltip title="Celebrate">
-                <ReactionButton onClick={() => addReaction('🎉')}>
-                  🎉
-                </ReactionButton>
-              </Tooltip>
-              <Tooltip title="Smile">
-                <ReactionButton onClick={() => addReaction('😊')}>
-                  😊
-                </ReactionButton>
-              </Tooltip>
-            </ReactionMenu>
+            </ParticipantOverlay>
+          </VideoWrapper>
+          <AudioWaveContainer isActive={isSpeaking[user.uid] && isAudioEnabled}>
+            {[20, 30, 40, 50, 40, 30, 20].map((height, i) => (
+              <WaveBar 
+                key={i} 
+                height={height} 
+                delay={i * 0.15}
+              />
+            ))}
+          </AudioWaveContainer>
+          {isWaving && (
+            <WaveIndicator isWaving={true}>
+              <WaveIcon />
+            </WaveIndicator>
           )}
+        </ParticipantContainer>
+      </MainContent>
 
-          <ControlsBar>
+      {showReactions && (
+        <ReactionMenu>
+          <Tooltip title="Wave">
+            <ReactionButton onClick={() => addReaction('👋')}>
+              👋
+            </ReactionButton>
+          </Tooltip>
+          <Tooltip title="Heart">
+            <ReactionButton onClick={() => addReaction('❤️')}>
+              ❤️
+            </ReactionButton>
+          </Tooltip>
+          <Tooltip title="Thumbs Up">
+            <ReactionButton onClick={() => addReaction('👍')}>
+              👍
+            </ReactionButton>
+          </Tooltip>
+          <Tooltip title="Celebrate">
+            <ReactionButton onClick={() => addReaction('🎉')}>
+              🎉
+            </ReactionButton>
+          </Tooltip>
+          <Tooltip title="Smile">
+            <ReactionButton onClick={() => addReaction('😊')}>
+              😊
+            </ReactionButton>
+          </Tooltip>
+        </ReactionMenu>
+      )}
+
+      <ControlsBar>
             <Tooltip title={isAudioEnabled ? "Mute" : "Unmute"}>
-              <ControlButton 
-                onClick={toggleAudio}
-                active={isAudioEnabled}
-              >
-                {isAudioEnabled ? <MicIcon /> : <MicOffIcon sx={{ color: '#ff4444' }} />}
-              </ControlButton>
-            </Tooltip>
+          <ControlButton 
+            onClick={toggleAudio}
+            active={isAudioEnabled}
+          >
+            {isAudioEnabled ? <MicIcon /> : <MicOffIcon sx={{ color: '#ff4444' }} />}
+          </ControlButton>
+        </Tooltip>
             
-            <Tooltip title={isVideoEnabled ? "Turn off camera" : "Turn on camera"}>
-              <ControlButton 
-                onClick={toggleVideo}
-                active={isVideoEnabled}
-              >
-                {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon sx={{ color: '#ff4444' }} />}
-              </ControlButton>
-            </Tooltip>
+        <Tooltip title={isVideoEnabled ? "Turn off camera" : "Turn on camera"}>
+          <ControlButton 
+            onClick={toggleVideo}
+            active={isVideoEnabled}
+          >
+            {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon sx={{ color: '#ff4444' }} />}
+          </ControlButton>
+        </Tooltip>
             
             <Tooltip title={isScreenSharing ? "Stop sharing" : "Share screen"}>
-              <ControlButton 
-                onClick={toggleScreenShare}
-                active={isScreenSharing}
-              >
-                {isScreenSharing ? <StopScreenShareIcon sx={{ color: '#ff4444' }} /> : <ScreenShareIcon />}
-              </ControlButton>
-            </Tooltip>
+          <ControlButton 
+            onClick={toggleScreenShare}
+            active={isScreenSharing}
+          >
+            {isScreenSharing ? <StopScreenShareIcon sx={{ color: '#ff4444' }} /> : <ScreenShareIcon />}
+          </ControlButton>
+        </Tooltip>
             
             {isHost && (
               <Tooltip title="Invite someone">
@@ -1355,6 +1639,20 @@ const MeetingRoom = ({ roomId, onLeave }) => {
                 >
                   <PersonAddIcon />
                 </ControlButton>
+              </Tooltip>
+            )}
+            
+            {isHost && waitingRoomParticipants.length > 0 && (
+              <Tooltip title={`${waitingRoomParticipants.length} waiting to join`}>
+                <Badge badgeContent={waitingRoomParticipants.length} color="error" overlap="circular">
+                  <ControlButton 
+                    onClick={() => document.getElementById('waiting-room-panel')?.scrollIntoView({ behavior: 'smooth' })}
+                    active={true}
+                    sx={{ animation: `${pulse} 2s infinite ease-in-out` }}
+                  >
+                    <PersonIcon />
+                  </ControlButton>
+                </Badge>
               </Tooltip>
             )}
             
@@ -1367,36 +1665,36 @@ const MeetingRoom = ({ roomId, onLeave }) => {
               </ControlButton>
             </Tooltip>
             
-            <Tooltip title="Show reactions">
-              <ControlButton 
-                onClick={() => setShowReactions(!showReactions)}
-                active={showReactions}
-              >
-                <EmojiIcon />
-              </ControlButton>
-            </Tooltip>
-            <Tooltip title="Wave to everyone">
-              <ControlButton 
-                onClick={handleWave}
-                active={isWaving}
-              >
-                <WaveIcon />
-              </ControlButton>
-            </Tooltip>
-            <Tooltip title="Leave meeting">
-              <ControlButton 
-                onClick={handleLeave}
-                sx={{ 
-                  backgroundColor: '#ff4444',
-                  '&:hover': {
-                    backgroundColor: '#ff6666',
-                  }
-                }}
-              >
-                <CallEndIcon />
-              </ControlButton>
-            </Tooltip>
-          </ControlsBar>
+        <Tooltip title="Show reactions">
+          <ControlButton 
+            onClick={() => setShowReactions(!showReactions)}
+            active={showReactions}
+          >
+            <EmojiIcon />
+          </ControlButton>
+        </Tooltip>
+        <Tooltip title="Wave to everyone">
+          <ControlButton 
+            onClick={handleWave}
+            active={isWaving}
+          >
+            <WaveIcon />
+          </ControlButton>
+        </Tooltip>
+        <Tooltip title="Leave meeting">
+          <ControlButton 
+            onClick={handleLeave}
+            sx={{ 
+              backgroundColor: '#ff4444',
+              '&:hover': {
+                backgroundColor: '#ff6666',
+              }
+            }}
+          >
+            <CallEndIcon />
+          </ControlButton>
+        </Tooltip>
+      </ControlsBar>
 
           {/* Replace Welcome Dialog with custom modal */}
           {showWelcomeDialog && (
@@ -1449,7 +1747,7 @@ const MeetingRoom = ({ roomId, onLeave }) => {
                 <ModalTitle variant="h6">Invite Someone to the Meeting</ModalTitle>
                 <Typography variant="body1" sx={{ mb: 2 }}>
                   Enter the email address of the person you want to invite.
-                </Typography>
+            </Typography>
                 <TextField
                   autoFocus
                   margin="dense"
@@ -1473,15 +1771,15 @@ const MeetingRoom = ({ roomId, onLeave }) => {
                     Important: After clicking "Create Invitation", a link will be created and copied to your clipboard.
                   </Typography>
                   <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mt: 1 }}>
-                    Link format: <strong>http://localhost:3001/meetings/{roomId}?token=abc123</strong>
+                    Link format: <strong>https://kanban-qiap-p2cfl1p8z-welsfags-projects.vercel.app/meetings/{roomId}?token=abc123</strong>
                   </Typography>
                   <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mt: 1 }}>
-                    Since this is a development environment, you'll need to manually share this link with your guest.
+                    Share this link with your guest. They can access it from anywhere.
                   </Typography>
                   <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mt: 1 }}>
                     The link will include a secure token that's valid for 24 hours.
                   </Typography>
-                </Box>
+            </Box>
                 <ModalActions>
                   <Button onClick={() => setInviteDialogOpen(false)}>
                     Cancel
@@ -1530,12 +1828,12 @@ const MeetingRoom = ({ roomId, onLeave }) => {
                     >
                       Copy
                     </Button>
-                  </Box>
-                </Box>
+            </Box>
+            </Box>
                 
                 <ModalActions>
-                  <Button 
-                    variant="contained"
+          <Button 
+            variant="contained" 
                     onClick={() => setInviteSuccessDialogOpen(false)}
                   >
                     Close
@@ -1548,42 +1846,118 @@ const MeetingRoom = ({ roomId, onLeave }) => {
           {/* Add Waiting Room Panel for host */}
           {isHost && waitingRoomParticipants.length > 0 && (
             <Paper
-              sx={{
+              id="waiting-room-panel"
+              elevation={4}
+            sx={{ 
                 position: 'absolute',
-                right: 16,
-                top: 16,
-                zIndex: 1000,
-                width: 300,
-                p: 2
+                right: 20,
+                top: 70,
+                zIndex: 1200,
+                width: 350,
+                p: 0,
+                backgroundColor: 'rgba(0,0,0,0.85)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: 2,
+                border: '1px solid rgba(255,255,255,0.1)',
+                overflow: 'hidden',
+                animation: `${popIn} 0.3s ease-out`
               }}
             >
-              <Typography variant="h6" gutterBottom>
-                Waiting Room ({waitingRoomParticipants.length})
-              </Typography>
-              <List>
+              <Box sx={{ 
+                p: 2, 
+                bgcolor: 'primary.main',
+                display: 'flex', 
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <PersonIcon /> Waiting Room ({waitingRoomParticipants.length})
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                  New requests
+                </Typography>
+              </Box>
+              
+              <List sx={{ maxHeight: 300, overflowY: 'auto', py: 0 }}>
                 {waitingRoomParticipants.map((participant) => (
                   <ListItem
                     key={participant.id}
-                    secondaryAction={
+                    sx={{ 
+                      borderBottom: '1px solid rgba(255,255,255,0.1)',
+                      py: 1.5,
+                      '&:last-child': {
+                        borderBottom: 'none'
+                      }
+                    }}
+                  >
+                    <ListItemAvatar>
+                      <Avatar sx={{ bgcolor: 'primary.dark' }}>
+                        {participant.name?.[0]?.toUpperCase() || <PersonIcon />}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={
+                        <Typography variant="subtitle1" sx={{ color: 'white' }}>
+                          {participant.name}
+                          {participant.token && (
+                            <Box 
+                              component="span" 
+                              sx={{ 
+                                ml: 1,
+                                fontSize: '10px', 
+              backgroundColor: 'primary.main',
+              color: 'white',
+                                px: 1,
+                                py: 0.3,
+                                borderRadius: 4,
+                                verticalAlign: 'middle'
+                              }}
+                            >
+                              INVITE LINK
+                            </Box>
+                          )}
+                        </Typography>
+                      }
+                      secondary={
+                        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                          {participant.isGuest ? 'Guest user' : participant.email || 'No email provided'}
+                          {participant.userAgent && (
+                            <Box component="span" sx={{ display: 'block', fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', mt: 0.5 }}>
+                              {participant.userAgent.includes('Chrome') ? '🌐 Chrome' : 
+                               participant.userAgent.includes('Firefox') ? '🦊 Firefox' : 
+                               participant.userAgent.includes('Safari') ? '🧭 Safari' : 
+                               participant.userAgent.includes('Edge') ? '📐 Edge' : '🌐 Browser'}
+                            </Box>
+                          )}
+                        </Typography>
+                      }
+                    />
+                    <Stack direction="row" spacing={1}>
                       <Button
                         size="small"
                         variant="contained"
+                        color="primary"
                         onClick={() => handleAdmitParticipant(participant.id)}
+                        sx={{ borderRadius: 4 }}
                       >
                         Admit
+          </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        sx={{ borderRadius: 4 }}
+                        onClick={() => handleDenyParticipant(participant.id)}
+                      >
+                        Deny
                       </Button>
-                    }
-                  >
-                    <ListItemText
-                      primary={participant.name}
-                      secondary={participant.isGuest ? 'Guest' : participant.email}
-                    />
+                    </Stack>
                   </ListItem>
                 ))}
               </List>
             </Paper>
           )}
-        </MeetingContainer>
+    </MeetingContainer>
       </Box>
     </ThemeProvider>
   );

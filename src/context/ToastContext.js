@@ -3,6 +3,8 @@ import { Box, useTheme } from '@mui/material';
 import { AnimatePresence } from 'framer-motion';
 import CustomToast from '../components/Toast/CustomToast';
 import { SoundManager } from '../utils/soundManager';
+import { v4 as uuidv4 } from 'uuid';
+import { motion } from 'framer-motion';
 
 const ToastContext = createContext();
 
@@ -10,30 +12,20 @@ export const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
   const theme = useTheme();
 
-  const showToast = (message, severity = 'info') => {
-    const id = Date.now();
-    setToasts(prev => [{ id, message, severity }, ...prev]);
+  const showToast = (message, severity = 'info', duration = 5000) => {
+    const id = uuidv4();
     
-    // Play different sounds for different severities
-    switch (severity) {
-      case 'success':
-        SoundManager.playNotification('DING');
-        break;
-      case 'error':
-        SoundManager.playNotification('BELL');
-        break;
-      default:
-        SoundManager.playNotification('NOTIFICATION_1');
-    }
-
-    // Auto dismiss after 5 seconds
+    // Add new toast to the array
+    setToasts(prevToasts => [...prevToasts, { id, message, severity }]);
+    
+    // Remove toast after duration
     setTimeout(() => {
-      setToasts(prev => prev.filter(toast => toast.id !== id));
-    }, 5000);
+      removeToast(id);
+    }, duration);
   };
 
-  const closeToast = (id) => {
-    setToasts(prev => prev.filter(toast => toast.id !== id));
+  const removeToast = (id) => {
+    setToasts(prevToasts => prevToasts.filter(toast => toast.id !== id));
   };
 
   return (
@@ -44,21 +36,32 @@ export const ToastProvider = ({ children }) => {
           position: 'fixed',
           top: 24,
           right: 24,
-          zIndex: 2000,
+          zIndex: 9999,
           display: 'flex',
           flexDirection: 'column',
-          alignItems: 'flex-end',
-          maxWidth: '90vw'
+          gap: 2,
+          maxWidth: '100%',
+          width: 'auto',
         }}
       >
         <AnimatePresence mode="popLayout">
           {toasts.map(toast => (
-            <CustomToast
+            <motion.div
               key={toast.id}
-              message={toast.message}
-              severity={toast.severity}
-              onClose={() => closeToast(toast.id)}
-            />
+              layout
+              initial={{ opacity: 0, y: -50, scale: 0.8 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              transition={{
+                layout: { type: 'spring', stiffness: 500, damping: 30 }
+              }}
+            >
+              <CustomToast
+                message={toast.message}
+                severity={toast.severity}
+                onClose={() => removeToast(toast.id)}
+              />
+            </motion.div>
           ))}
         </AnimatePresence>
       </Box>

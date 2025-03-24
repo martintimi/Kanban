@@ -56,6 +56,10 @@ import JoinPage from './components/Join/JoinPage';
 import PrivateRoute from './components/Auth/PrivateRoute';
 import { AIAssistantProvider } from './context/AIAssistantContext';
 import AIAssistant from './components/AIAssistant/AIAssistant';
+import AdminDashboard from './components/AdminDashboard';
+import TeamPerformance from './components/Analytics/TeamPerformance';
+import ResourceManagement from './components/ResourceManagement';
+import ProjectHistory from './components/ProjectHistory';
 
 const ProtectedRoute = ({ children, authRequired = true }) => {
   const { user, loading, logout } = useAuth();
@@ -170,9 +174,38 @@ const MeetingWrapper = () => {
 };
 
 function AppContent() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const { user, loading, logout } = useAuth();
   const location = useLocation();
-  const { user, loading } = useAuth();
-  const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
+  const { mode, toggleColorMode } = useTheme();
+  const [anchorEl, setAnchorEl] = useState(null);
+  const open = Boolean(anchorEl);
+  const { selectedOrg, loading: orgLoading, fetchUserOrganizations } = useOrganization();
+  const [showOrgPrompt, setShowOrgPrompt] = useState(false);
+  const [orgName, setOrgName] = useState('');
+  const navigate = useNavigate();
+  
+  const handleDrawerToggle = () => {
+    setMobileOpen(!mobileOpen);
+  };
+
+  const handleClick = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleOrgPrompt = () => {
+    setShowOrgPrompt(true);
+  };
+
+  const handleOrgNameChange = (e) => {
+    setOrgName(e.target.value);
+  };
+
+  const handleOrgSubmit = () => {
+    // Handle organization submission
+    console.log("Organization submitted:", orgName);
+    setShowOrgPrompt(false);
+  };
 
   if (loading) {
     return (
@@ -182,114 +215,119 @@ function AppContent() {
     );
   }
 
-  // For auth pages, render without navigation
-  if (isAuthPage) {
-    return (
-      <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-        <Routes>
-          <Route path="/login" element={
-            <ProtectedRoute authRequired={false}>
-              <Login />
-            </ProtectedRoute>
-          } />
-          <Route path="/signup" element={
-            <ProtectedRoute authRequired={false}>
-              <SignUp />
-            </ProtectedRoute>
-          } />
-        </Routes>
-      </Box>
-    );
-  }
-
-  // For authenticated pages with navigation
   return (
-    <Box sx={{ 
-      display: 'flex', 
-      minHeight: '100vh',
-      width: '100%',
-      position: 'relative'
-    }}>
-      <SideNav />
-      <TopNav />
-      
+    <Box>
+      {user && (
+        <TopNav
+          open={mobileOpen}
+          handleDrawerToggle={handleDrawerToggle}
+          handleProfileMenuOpen={handleClick}
+          toggleTheme={toggleColorMode}
+          mode={mode}
+        />
+      )}
+      {user && <SideNav open={mobileOpen} handleDrawerToggle={handleDrawerToggle} />}
       <Box
         component="main"
         sx={{
           flexGrow: 1,
-          width: '100%',
-          minHeight: '100vh',
-          pt: '64px',
-          transition: 'margin-left 0.3s',
-          overflow: 'hidden',
+          ml: { sm: `${user ? 240 : 0}px` },
         }}
       >
-        <Routes>
-          <Route path="/" element={<Navigate to={user ? "/dashboard" : "/login"} />} />
-          <Route path="/dashboard" element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          } />
-          <Route path="/task-column/:projectId" element={
-            <ProtectedRoute>
-              <PageTransition>
+        {user && <Box sx={{ height: { xs: '56px', sm: '64px' } }} />}
+        <PageTransition>
+          <Routes location={location} key={location.pathname}>
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<SignUp />} />
+            <Route path="/" element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/task-column/:projectId" element={
+              <ProtectedRoute>
                 <TaskColumn />
-              </PageTransition>
-            </ProtectedRoute>
-          } />
-          <Route path="/my-tasks" element={
-            <ProtectedRoute>
-              <MyTasks />
-            </ProtectedRoute>
-          } />
-          <Route path="/create-task" element={
-            <ProtectedRoute>
-              <CreateTask />
-            </ProtectedRoute>
-          } />
-          <Route path="/projects" element={
-            <ProtectedRoute>
-              <Projects />
-            </ProtectedRoute>
-          } />
-          <Route path="/settings" element={
-            <ProtectedRoute>
-              <PageTransition>
+              </ProtectedRoute>
+            } />
+            <Route path="/my-tasks" element={
+              <ProtectedRoute>
+                <MyTasks />
+              </ProtectedRoute>
+            } />
+            <Route path="/create-task" element={
+              <ProtectedRoute>
+                <CreateTask />
+              </ProtectedRoute>
+            } />
+            <Route path="/projects" element={
+              <ProtectedRoute>
+                <Projects />
+              </ProtectedRoute>
+            } />
+            <Route path="/settings" element={
+              <ProtectedRoute>
                 <Settings />
-              </PageTransition>
-            </ProtectedRoute>
-          } />
-          <Route path="/resources" element={
-            <RoleProtectedRoute allowedRoles={['admin', 'project_manager']}>
-              <PageTransition>
+              </ProtectedRoute>
+            } />
+            <Route path="/resource-dashboard" element={
+              <ProtectedRoute>
                 <ResourceDashboard />
-              </PageTransition>
-            </RoleProtectedRoute>
-          } />
-          <Route path="/calendar" element={
-            <RoleProtectedRoute allowedRoles={['admin', 'project_manager', 'developer']}>
-              <PageTransition>
+              </ProtectedRoute>
+            } />
+            <Route path="/calendar" element={
+              <ProtectedRoute>
                 <ProjectCalendar />
-              </PageTransition>
-            </RoleProtectedRoute>
-          } />
-          <Route path="/organization-management" element={
-            <ProtectedRoute>
-              <OrganizationManagement />
-            </ProtectedRoute>
-          } />
-          <Route path="/meetings/:meetingId" element={
-            <ProtectedRoute>
-              <MeetingWrapper />
-            </ProtectedRoute>
-          } />
-          <Route path="/join" element={
-            <ProtectedRoute authRequired={false}>
-              <JoinPage />
-            </ProtectedRoute>
-          } />
-        </Routes>
+              </ProtectedRoute>
+            } />
+            <Route path="/organizations" element={
+              <ProtectedRoute>
+                <OrganizationManagement />
+              </ProtectedRoute>
+            } />
+            <Route path="/meeting-room/:meetingId" element={
+              <ProtectedRoute>
+                <MeetingWrapper />
+              </ProtectedRoute>
+            } />
+            <Route path="/invite/:inviteId" element={<JoinPage />} />
+
+            {/* Admin Routes */}
+            <Route 
+              path="/admin/dashboard" 
+              element={
+                <RoleProtectedRoute allowedRoles={['admin', 'owner', 'project_manager']}>
+                  <AdminDashboard />
+                </RoleProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/admin/team-performance" 
+              element={
+                <RoleProtectedRoute allowedRoles={['admin', 'owner', 'project_manager']}>
+                  <TeamPerformance />
+                </RoleProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/admin/resource-management" 
+              element={
+                <RoleProtectedRoute allowedRoles={['admin', 'owner', 'project_manager']}>
+                  <ResourceManagement />
+                </RoleProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/admin/project-history/:projectId?" 
+              element={
+                <RoleProtectedRoute allowedRoles={['admin', 'owner', 'project_manager']}>
+                  <ProjectHistory />
+                </RoleProtectedRoute>
+              } 
+            />
+
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </PageTransition>
       </Box>
     </Box>
   );

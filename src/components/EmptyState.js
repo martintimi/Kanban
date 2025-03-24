@@ -51,6 +51,14 @@ const EmptyState = ({ type, onAction, currentModule }) => {
   const config = stateConfig[type] || stateConfig.tasks;
   const IconComponent = config.icon;
 
+  const handleAction = (e) => {
+    e.preventDefault();
+    if (typeof onAction === 'function') {
+      // Call the onAction with no arguments to open the dialog instead of directly creating
+      onAction();
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -124,7 +132,7 @@ const EmptyState = ({ type, onAction, currentModule }) => {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={onAction}
+            onClick={handleAction}
             size="large"
             sx={{
               backgroundColor: config.color,

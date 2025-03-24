@@ -44,6 +44,7 @@ import ProjectTimeline from './ProjectTimeline';
 import ProjectForm from './ProjectForm';
 import { useOrganization } from '../../context/OrganizationContext';
 import CustomLoader from '../CustomLoader';
+import { motion } from 'framer-motion';
 
 const Projects = () => {
   const { user } = useAuth();
@@ -89,6 +90,13 @@ const Projects = () => {
     try {
       if (!selectedOrg) {
         showToast('Please select an organization first', 'error');
+        return;
+      }
+
+      // Only create a project if we have project data
+      if (!projectData.name) {
+        // If no name, just open the dialog
+        setOpenDialog(true);
         return;
       }
 
@@ -309,137 +317,175 @@ const Projects = () => {
       {projects.length === 0 ? (
         <EmptyState 
           type="projects" 
-          onAction={handleCreateProject}
+          onAction={() => setOpenDialog(true)}
           currentModule="Project"
         />
       ) : (
-        <Grid container spacing={3} sx={{ mt: 3 }}>
-          {projects
-            .filter(project => {
-              const matchesSearch = project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                project.description?.toLowerCase().includes(searchTerm.toLowerCase());
-              const matchesStatus = statusFilter === 'all' || project.status === statusFilter;
-              const matchesPriority = priorityFilter === 'all' || project.priority === priorityFilter;
-              return matchesSearch && matchesStatus && matchesPriority;
-            })
-            .map(project => (
-              <Grid item xs={12} sm={6} md={4} key={project.id}>
-                <Card 
-                  sx={{ 
-                    cursor: 'pointer',
-                    height: '100%',
-                    bgcolor: 'background.paper',
-                    color: 'text.primary',
-                    '&:hover': {
-                      transform: 'translateY(-4px)',
-                      transition: 'transform 0.2s'
-                    }
-                  }}
-                >
-                  <CardContent>
-                    <Box sx={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between',
-                      alignItems: 'flex-start'
-                    }}>
-                      <Typography 
-                        variant="h6" 
-                        onClick={() => handleProjectClick(project.id)}
-                        color="text.primary"
-                      >
-                        {project.name}
-                      </Typography>
-                      <IconButton 
-                        size="small"
-                        onClick={(e) => handleMenuOpen(e, project)}
-                      >
-                        <MoreVertIcon />
-                      </IconButton>
-                    </Box>
-                    
-                    <Typography 
-                      color="text.secondary" 
-                      sx={{ mb: 2 }}
-                    >
-                      {project.description}
-                    </Typography>
-
-                    <Box sx={{ mt: 2, mb: 3 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography variant="body2" color="text.secondary">
-                          Progress
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {project.tasks?.filter(t => t.status === 'Done').length || 0}/{project.tasks?.length || 0} tasks
-                        </Typography>
-                      </Box>
-                      <LinearProgress 
-                        variant="determinate" 
-                        value={
-                          project.tasks?.length 
-                            ? (project.tasks.filter(t => t.status === 'Done').length / project.tasks.length) * 100
-                            : 0
-                        }
-                        sx={{ height: 8, borderRadius: 4 }}
-                      />
-                    </Box>
-
-                    <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                      {project.members?.slice(0, 3).map((member, index) => (
-                        <Avatar
-                          key={member.id}
-                          src={member.photoURL}
-                          sx={{ width: 30, height: 30 }}
+        <>
+          <Grid container spacing={3} sx={{ mt: 3 }}>
+            {projects
+              .filter(project => {
+                const matchesSearch = project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                  project.description?.toLowerCase().includes(searchTerm.toLowerCase());
+                const matchesStatus = statusFilter === 'all' || project.status === statusFilter;
+                const matchesPriority = priorityFilter === 'all' || project.priority === priorityFilter;
+                return matchesSearch && matchesStatus && matchesPriority;
+              })
+              .map(project => (
+                <Grid item xs={12} sm={6} md={4} key={project.id}>
+                  <Card 
+                    sx={{ 
+                      cursor: 'pointer',
+                      height: '100%',
+                      bgcolor: 'background.paper',
+                      color: 'text.primary',
+                      '&:hover': {
+                        transform: 'translateY(-4px)',
+                        transition: 'transform 0.2s'
+                      }
+                    }}
+                  >
+                    <CardContent>
+                      <Box sx={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start'
+                      }}>
+                        <Typography 
+                          variant="h6" 
+                          onClick={() => handleProjectClick(project.id)}
+                          color="text.primary"
                         >
-                          {member.name?.charAt(0)}
-                        </Avatar>
-                      ))}
-                      {project.members?.length > 3 && (
-                        <Avatar sx={{ width: 30, height: 30, bgcolor: 'primary.main' }}>
-                          +{project.members.length - 3}
-                        </Avatar>
-                      )}
-                    </Box>
+                          {project.name}
+                        </Typography>
+                        <IconButton 
+                          size="small"
+                          onClick={(e) => handleMenuOpen(e, project)}
+                        >
+                          <MoreVertIcon />
+                        </IconButton>
+                      </Box>
+                      
+                      <Typography 
+                        color="text.secondary" 
+                        sx={{ mb: 2 }}
+                      >
+                        {project.description}
+                      </Typography>
 
-                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      <Chip 
-                        label={project.category || 'No Category'} 
-                        size="small"
-                        color="primary"
-                        variant="outlined"
-                      />
-                      <Chip 
-                        label={`${project.tasks?.length || 0} Tasks`}
-                        size="small"
-                        color={project.tasks?.length ? 'info' : 'default'}
-                      />
-                      {project.deadline && (
+                      <Box sx={{ mt: 2, mb: 3 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Progress
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {project.tasks?.filter(t => t.status === 'Done').length || 0}/{project.tasks?.length || 0} tasks
+                          </Typography>
+                        </Box>
+                        <LinearProgress 
+                          variant="determinate" 
+                          value={
+                            project.tasks?.length 
+                              ? (project.tasks.filter(t => t.status === 'Done').length / project.tasks.length) * 100
+                              : 0
+                          }
+                          sx={{ height: 8, borderRadius: 4 }}
+                        />
+                      </Box>
+
+                      <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                        {project.members?.slice(0, 3).map((member, index) => (
+                          <Avatar
+                            key={member.id}
+                            src={member.photoURL}
+                            sx={{ width: 30, height: 30 }}
+                          >
+                            {member.name?.charAt(0)}
+                          </Avatar>
+                        ))}
+                        {project.members?.length > 3 && (
+                          <Avatar sx={{ width: 30, height: 30, bgcolor: 'primary.main' }}>
+                            +{project.members.length - 3}
+                          </Avatar>
+                        )}
+                      </Box>
+
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                         <Chip 
-                          label={`Due: ${new Date(project.deadline).toLocaleDateString()}`}
+                          label={project.category || 'No Category'} 
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                        />
+                        <Chip 
+                          label={`${project.tasks?.length || 0} Tasks`}
+                          size="small"
+                          color={project.tasks?.length ? 'info' : 'default'}
+                        />
+                        {project.deadline && (
+                          <Chip 
+                            label={`Due: ${new Date(project.deadline).toLocaleDateString()}`}
+                            size="small"
+                            color={
+                              new Date(project.deadline) < new Date() 
+                                ? 'error' 
+                                : 'success'
+                            }
+                            icon={<AccessTimeIcon />}
+                          />
+                        )}
+                        <Chip
+                          label={project.priority || 'Medium'}
                           size="small"
                           color={
-                            new Date(project.deadline) < new Date() 
-                              ? 'error' 
-                              : 'success'
+                            project.priority === 'High' ? 'error' :
+                            project.priority === 'Medium' ? 'warning' :
+                            'default'
                           }
-                          icon={<AccessTimeIcon />}
                         />
-                      )}
-                      <Chip
-                        label={project.priority || 'Medium'}
-                        size="small"
-                        color={
-                          project.priority === 'High' ? 'error' :
-                          project.priority === 'Medium' ? 'warning' :
-                          'default'
-                        }
-                      />
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-        </Grid>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+          </Grid>
+          
+          {/* Add floating action button for creating another project */}
+          {canCreateProject && projects.length > 0 && (
+            <Box
+              sx={{
+                position: 'fixed',
+                bottom: 24,
+                right: 24,
+                zIndex: 1000
+              }}
+            >
+              <motion.div
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+              >
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={() => setOpenDialog(true)}
+                  sx={{
+                    borderRadius: '50%',
+                    width: 64,
+                    height: 64,
+                    minWidth: 'auto',
+                    boxShadow: '0 8px 16px rgba(0, 0, 0, 0.3)'
+                  }}
+                  aria-label="Create new project"
+                >
+                  <AddIcon fontSize="large" />
+                </Button>
+              </motion.div>
+            </Box>
+          )}
+        </>
       )}
 
       {/* Timeline */}
@@ -452,7 +498,6 @@ const Projects = () => {
         />
       </Box>
 
-      {/* Create Project Dialog */}
       <Dialog 
         open={openDialog} 
         onClose={() => setOpenDialog(false)}

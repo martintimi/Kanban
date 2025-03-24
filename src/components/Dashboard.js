@@ -1078,9 +1078,7 @@ export default function Dashboard() {
           <Grid item xs={12} md={8}>
             {/* Your main content */}
           </Grid>
-          <Grid item xs={12} md={4}>
-            <NotificationList />
-          </Grid>
+        
         </Grid>
 
         <Dialog 

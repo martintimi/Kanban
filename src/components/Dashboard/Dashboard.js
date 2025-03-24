@@ -25,6 +25,7 @@ import {
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useProjects } from '../../context/ProjectContext';
+import LoadingSpinner from '../LoadingSpinner';
 
 const Dashboard = () => {
   const { projects, loading } = useProjects();
@@ -56,11 +57,7 @@ const Dashboard = () => {
   };
 
   if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
-        <CircularProgress />
-      </Box>
-    );
+    return <LoadingSpinner message="Setting up your workspace..." />;
   }
 
   return (

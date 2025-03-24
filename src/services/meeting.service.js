@@ -11,7 +11,8 @@ import {
   getDocs,
   deleteField,
   setDoc,
-  arrayUnion
+  arrayUnion,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { httpsCallable, getFunctions } from 'firebase/functions';
@@ -69,14 +70,43 @@ class MeetingService {
 
   async joinMeeting(meetingId, participant) {
     try {
+      console.log(`User ${participant.id} joining meeting ${meetingId}`);
+      
       const meetingRef = doc(db, 'meetings', meetingId);
-      await updateDoc(meetingRef, {
-        [`participants.${participant.id}`]: {
-          id: participant.id,
-          name: participant.name,
-          joinedAt: serverTimestamp()
-        }
-      });
+      const meetingDoc = await getDoc(meetingRef);
+      
+      if (!meetingDoc.exists()) {
+        throw new Error('Meeting not found');
+      }
+      
+      // Check if this user is already in the meeting
+      const data = meetingDoc.data();
+      const participants = data.participants || {};
+      
+      if (participants[participant.id]) {
+        console.log(`User ${participant.id} already in meeting, updating status`);
+        // Just update their status as active
+        await updateDoc(meetingRef, {
+          [`participants.${participant.id}.lastActive`]: serverTimestamp(),
+          [`participants.${participant.id}.status`]: 'active'
+        });
+      } else {
+        // Add them as a new participant
+        console.log(`Adding user ${participant.id} as new participant`);
+        await updateDoc(meetingRef, {
+          [`participants.${participant.id}`]: {
+            id: participant.id,
+            name: participant.name,
+            email: participant.email,
+            isGuest: participant.isGuest || false,
+            userAgent: navigator.userAgent,
+            joinedAt: serverTimestamp(),
+            status: 'active'
+          }
+        });
+      }
+      
+      return true;
     } catch (error) {
       console.error('Error joining meeting:', error);
       throw error;
@@ -308,26 +338,194 @@ END:VCALENDAR`;
 
   async admitFromWaitingRoom(meetingId, participantId) {
     try {
+      console.log(`Admitting participant ${participantId} to meeting ${meetingId}`);
+      
+      // First, get the current state
       const meetingRef = doc(db, 'meetings', meetingId);
       const meetingDoc = await getDoc(meetingRef);
-      const meetingData = meetingDoc.data();
-
-      if (meetingData.waitingRoom?.[participantId]) {
-        const participant = meetingData.waitingRoom[participantId];
-        
-        // Remove from waiting room and add to participants
-        await updateDoc(meetingRef, {
-          [`waitingRoom.${participantId}`]: deleteField(),
-          [`participants.${participantId}`]: {
-            ...participant,
-            admittedAt: serverTimestamp()
-          }
-        });
+      
+      if (!meetingDoc.exists()) {
+        throw new Error('Meeting not found');
       }
+      
+      const data = meetingDoc.data();
+      const waitingRoom = data.waitingRoom || {};
+      
+      // Get the participant's data from the waiting room
+      const participant = waitingRoom[participantId];
+      
+      if (!participant) {
+        console.warn(`Participant ${participantId} not found in waiting room`);
+        return false;
+      }
+      
+      // Create a batch to ensure this is atomic
+      const batch = writeBatch(db);
+      
+      // Add to participants collection
+      batch.update(meetingRef, {
+        [`participants.${participantId}`]: {
+          id: participantId,
+          name: participant.name,
+          email: participant.email,
+          isGuest: participant.isGuest || false,
+          userAgent: participant.userAgent,
+          joinedAt: serverTimestamp(),
+          admittedAt: serverTimestamp()
+        }
+      });
+      
+      // Remove from waiting room
+      batch.update(meetingRef, {
+        [`waitingRoom.${participantId}`]: deleteField()
+      });
+      
+      // Commit the batch
+      await batch.commit();
+      
+      console.log(`Successfully admitted participant ${participantId}`);
+      return true;
     } catch (error) {
       console.error('Error admitting from waiting room:', error);
       throw error;
     }
+  }
+
+  async removeFromWaitingRoom(meetingId, participantId) {
+    try {
+      const meetingRef = doc(db, 'meetings', meetingId);
+      
+      // Simply remove the participant from the waiting room without adding to participants
+      await updateDoc(meetingRef, {
+        [`waitingRoom.${participantId}`]: deleteField()
+      });
+    } catch (error) {
+      console.error('Error removing from waiting room:', error);
+      throw error;
+    }
+  }
+
+  // Subscribe to waiting room changes
+  onWaitingRoomChange(meetingId, callback) {
+    try {
+      const meetingRef = doc(db, 'meetings', meetingId);
+      
+      return onSnapshot(meetingRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          const waitingRoom = data.waitingRoom || {};
+          const participants = Object.values(waitingRoom);
+          callback(participants);
+        } else {
+          callback([]);
+        }
+      });
+    } catch (error) {
+      console.error('Error subscribing to waiting room:', error);
+      return () => {};
+    }
+  }
+
+  // Subscribe to participant admission status
+  onParticipantAdmitted(meetingId, participantId, callback) {
+    try {
+      console.log(`Setting up admission listener for participant: ${participantId}`);
+      
+      // Reference to the participants sub-collection in the meeting
+      const participantsRef = doc(db, 'meetings', meetingId);
+      
+      // Listen for changes to this specific participant's admission status
+      return onSnapshot(participantsRef, (snapshot) => {
+        if (!snapshot.exists()) {
+          console.log('Meeting document does not exist');
+          return;
+        }
+        
+        const meetingData = snapshot.data();
+        const participants = meetingData.participants || {};
+        
+        // Check if this specific participant has been admitted
+        if (participants[participantId]) {
+          console.log(`Participant ${participantId} found in admitted participants`);
+          // They've been admitted if they exist in participants
+          callback(true);
+        } else {
+          // Check if they're still in waiting room
+          const waitingRoom = meetingData.waitingRoom || {};
+          const isInWaitingRoom = !!waitingRoom[participantId];
+          
+          if (!isInWaitingRoom) {
+            console.log(`Participant ${participantId} not found in waiting room either`);
+            // If they're not in the waiting room anymore but not admitted,
+            // they were probably denied access
+            callback(false);
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error setting up participant admitted listener:', error);
+      return () => {}; // Return empty unsubscribe function
+    }
+  }
+
+  // Direct join with token (no authentication required)
+  async validateAndJoinWithToken(meetingId, token) {
+    try {
+      // First check if the meeting exists
+      const meetingRef = doc(db, 'meetings', meetingId);
+      const meetingDoc = await getDoc(meetingRef);
+      
+      if (!meetingDoc.exists()) {
+        throw new Error('Meeting not found');
+      }
+      
+      // Create a stable fingerprint based on the browser and token
+      // This ensures the same browser gets the same ID for a given token
+      const browserFingerprint = navigator.userAgent + 
+                                window.navigator.language + 
+                                window.screen.colorDepth + 
+                                window.screen.width + 
+                                window.screen.height;
+      
+      // Create a hash that's stable across page refreshes
+      const hashCode = this.hashString(browserFingerprint + token);
+      
+      // Use the token + fingerprint to create a unique but stable guest ID
+      const guestId = `guest_${token.substring(0,6)}_${hashCode}`;
+      
+      console.log('Generated stable guest ID:', guestId);
+      
+      // Track this token access - helps with security and auditing
+      await updateDoc(meetingRef, {
+        [`tokenAccesses.${guestId}`]: {
+          token: token,
+          timestamp: serverTimestamp(),
+          userAgent: navigator.userAgent,
+          guestId: guestId
+        }
+      });
+      
+      return guestId;
+    } catch (error) {
+      console.error('Error validating token:', error);
+      throw error;
+    }
+  }
+  
+  // Create a more stable hash function to ensure consistent guest IDs
+  hashString(str) {
+    let hash = 0;
+    if (str.length === 0) return hash;
+    
+    // Use a more sophisticated hashing algorithm for stability
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    
+    // Return a positive hex string that's reasonably short but unique
+    return Math.abs(hash).toString(16).substring(0, 6);
   }
 
   async createDirectInvitation(meetingId, email, inviteData) {

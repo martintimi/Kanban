@@ -12,7 +12,8 @@ import {
   Divider,
   FormGroup,
   FormControlLabel,
-  Switch
+  Switch,
+  Chip
 } from '@mui/material';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +29,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
 import SettingsIcon from '@mui/icons-material/Settings';
 import Collapse from '@mui/material/Collapse';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import CheckIcon from '@mui/icons-material/Check';
 
 const NotificationBell = () => {
   const { user } = useAuth();
@@ -69,6 +72,10 @@ const NotificationBell = () => {
         return <AssignmentIcon />;
       case 'status_update':
         return <UpdateIcon />;
+      case 'work_started':
+        return <PlayArrowIcon color="primary" />;
+      case 'task_completed':
+        return <CheckIcon color="success" />;
       case 'due_soon':
         return <PriorityHighIcon color="warning" />;
       default:
@@ -114,7 +121,17 @@ const NotificationBell = () => {
     if (!notification.read) {
       await NotificationService.markAsRead(user.uid, notification.id);
     }
-    // Navigate to relevant page based on notification type
+    
+    // Handle navigation based on notification type
+    if (notification.projectId) {
+      // For task-related notifications, navigate to the task board
+      if (notification.taskId) {
+        window.location.href = `/task-column/${notification.projectId}?task=${notification.taskId}`;
+      } else {
+        window.location.href = `/task-column/${notification.projectId}`;
+      }
+    }
+    
     handleClose();
   };
 
@@ -248,27 +265,34 @@ const NotificationBell = () => {
                   bgcolor: 'background.default'
                 }}
               >
-                {isValid(new Date(date)) ? format(new Date(date), 'MMMM d, yyyy') : 'Invalid Date'}
+                {new Date(date).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
               </Typography>
 
               {notifications.map((notification) => (
                 <MenuItem
                   key={notification.id}
                   onClick={() => handleNotificationClick(notification)}
-                  component={motion.div}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
                   sx={{
-                    bgcolor: notification.read ? 'inherit' : 'action.hover',
-                    transition: 'background-color 0.2s'
+                    borderRadius: 1,
+                    m: 0.5,
+                    opacity: notification.read ? 0.7 : 1,
+                    bgcolor: notification.read ? 'transparent' : 'action.hover'
                   }}
+                  component={motion.div}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3 }}
                 >
                   <ListItemAvatar>
                     <Avatar
-                      src={notification.from?.photoURL}
                       sx={{
-                        bgcolor: notification.read ? 'grey.400' : 'primary.main'
+                        bgcolor: notification.read
+                          ? 'action.selected'
+                          : notification.type === 'task_completed'
+                          ? 'success.light'
+                          : notification.type === 'work_started'
+                          ? 'primary.light'
+                          : 'primary.main'
                       }}
                     >
                       {getNotificationIcon(notification.type)}
@@ -276,28 +300,28 @@ const NotificationBell = () => {
                   </ListItemAvatar>
                   <ListItemText
                     primary={
-                      <Typography variant="subtitle2" noWrap>
-                        {notification.title}
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          fontWeight: notification.read ? 'normal' : 'medium',
+                          color: notification.read ? 'text.secondary' : 'text.primary'
+                        }}
+                      >
+                        {notification.message}
                       </Typography>
                     }
                     secondary={
-                      <Box component="span" sx={{ display: 'flex', flexDirection: 'column' }}>
-                        <Typography
-                          variant="body2"
-                          color="text.secondary"
-                          sx={{
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical'
-                          }}
-                        >
-                          {notification.body}
-                        </Typography>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}>
                         <Typography variant="caption" color="text.secondary">
-                          {formatTimeAgo(notification.createdAt)}
+                          {formatTimeAgo(notification.timestamp || notification.createdAt)}
                         </Typography>
+                        {notification.projectName && (
+                          <Chip
+                            label={notification.projectName}
+                            size="small"
+                            sx={{ height: 20, fontSize: '0.7rem' }}
+                          />
+                        )}
                       </Box>
                     }
                   />
