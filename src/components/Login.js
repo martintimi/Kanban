@@ -153,11 +153,16 @@ export default function Login() {
 
     try {
       await login(formData.email, formData.password);
-      showToast('👋 Welcome back!', 'success');
+      // Add a delay before redirect to ensure user state is updated
+      setTimeout(() => {
+        showToast('👋 Welcome back!', 'success');
+        navigate('/dashboard');
+      }, 500);
     } catch (err) {
       console.error('Login error:', err);
       const errorMessages = {
         'auth/invalid-credential': '❌ Invalid email or password',
+        'auth/invalid-login-credentials': '❌ Invalid email or password',
         'auth/user-not-found': '❌ No account found with this email',
         'auth/wrong-password': '❌ Invalid email or password',
         'auth/too-many-requests': '⚠️ Too many failed attempts. Please try again later',
@@ -165,6 +170,28 @@ export default function Login() {
         'auth/invalid-email': '📧 Please enter a valid email address',
         'auth/network-request-failed': '🌐 Network error. Please check your connection'
       };
+      
+      // Specific handling for credentials that should work but don't
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/invalid-login-credentials') {
+        showToast('Attempting to verify your account...', 'info');
+        try {
+          // Try again with a slight delay
+          setTimeout(async () => {
+            try {
+              await login(formData.email, formData.password);
+              showToast('👋 Welcome back!', 'success');
+              navigate('/dashboard');
+            } catch (secondError) {
+              showToast(errorMessages[secondError.code] || '❌ An error occurred during sign in', 'error');
+            } finally {
+              setLoading(false);
+            }
+          }, 1000);
+          return;
+        } catch (retryError) {
+          console.error('Login retry error:', retryError);
+        }
+      }
       
       showToast(errorMessages[err.code] || '❌ An error occurred during sign in', 'error');
     } finally {
@@ -402,7 +429,7 @@ export default function Login() {
               <Typography variant="body2" color="text.secondary">
                 Don't have an account?{' '}
                 <Link
-                  to="/sign_up"
+                  to="/signup"
                   style={{
                     color: theme.palette.primary.main,
                     textDecoration: 'none'

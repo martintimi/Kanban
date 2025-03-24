@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Box, Typography, Paper, Divider } from '@mui/material';
 import NotificationSettings from './NotificationSettings';
+import CustomLoader from '../CustomLoader';
 
 const Settings = () => {
+  const [loading, setLoading] = useState(false); // Add loading state
+
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom>
@@ -16,6 +19,8 @@ const Settings = () => {
         <Divider sx={{ my: 2 }} />
         <NotificationSettings />
       </Paper>
+      
+      {loading && <CustomLoader message="Loading settings..." />}
     </Box>
   );
 };

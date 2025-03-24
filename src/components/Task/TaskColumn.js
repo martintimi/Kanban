@@ -18,8 +18,6 @@ import {
   DialogContent,
   DialogTitle,
   Alert,
-  CircularProgress,
-  Chip,
   LinearProgress,
   List,
   ListItem,
@@ -39,7 +37,8 @@ import {
   InputLabel,
   Select,
   Tooltip,
-  Paper
+  Paper,
+  Chip
 } from "@mui/material";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -59,6 +58,7 @@ import { styled } from "@mui/material/styles";
 import CustomButton from "../CustomButton";
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjects } from '../../context/ProjectContext';
+import { useOrganization } from '../../context/OrganizationContext';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { DatePicker } from '@mui/lab';
 import TaskDetails from './TaskDetails';
@@ -85,6 +85,7 @@ import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import { TaskService } from '../../services/TaskService';
 import LoadingSpinner from '../LoadingSpinner';
 import { LoadingButton } from '@mui/lab';
+import CustomLoader from '../CustomLoader';
 
 const TaskItem = ({ task, projectId, onEdit, onDelete }) => {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -209,6 +210,7 @@ const TaskColumn = () => {
   const { projectId } = useParams();
   const { projects, updateProject } = useProjects();
   const { user: currentUser } = useAuth();
+  const { selectedOrg } = useOrganization();
   const [currentProject, setCurrentProject] = useState(null);
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
@@ -444,30 +446,22 @@ const TaskColumn = () => {
   const handleAddTask = async (taskData) => {
     try {
       setLoading(true);
-      const newTask = await ProjectService.addTask(projectId, {
+      
+      // Ensure all required fields are present
+      const newTaskData = {
         ...taskData,
+        organizationId: selectedOrg.id, // Add organization ID
         createdBy: currentUser.uid,
-        assignee: taskData.assignee,
-        name: taskData.name,
-        description: taskData.description,
-        priority: taskData.priority || 'medium',
-        status: 'To Do',
-        dueDate: taskData.dueDate
-      });
+        assignedTo: taskData.assignedTo,
+        assignee: taskData.assignedTo // For backward compatibility
+      };
 
-      // Add activity for task creation
-      await ProjectService.addActivity(projectId, {
-        type: 'task_created',
-        entityType: 'task',
-        userId: currentUser.uid,
-        userName: currentUser.displayName || currentUser.email,
-        details: `Created task: ${taskData.name}`,
-        taskId: newTask.id,
-        taskName: taskData.name
-      });
-
-      showToast('Task created successfully!', 'success');
+      console.log('Creating task with data:', newTaskData);
+      
+      await ProjectService.addTask(projectId, newTaskData);
       await loadTasks();
+      
+      showToast('Task created successfully!', 'success');
     } catch (error) {
       console.error('Error creating task:', error);
       showToast('Failed to create task: ' + error.message, 'error');
@@ -973,14 +967,18 @@ const TaskColumn = () => {
     const setupNotifications = async () => {
       if (currentUser?.uid) {
         try {
-          const unsubscribe = await NotificationService.subscribeToNotifications(
+          const unsubscribe = NotificationService.subscribeToUserNotifications(
             currentUser.uid, 
-            (notification) => {
-              setSnackbar({
-                open: true,
-                message: notification.body,
-                severity: notification.type === 'due_date' ? 'warning' : 'info'
-              });
+            (notifications) => {
+              // Only show snackbar for the most recent notification
+              if (notifications.length > 0) {
+                const latestNotification = notifications[0];
+                setSnackbar({
+                  open: true,
+                  message: latestNotification.message,
+                  severity: latestNotification.type === 'due_date' ? 'warning' : 'info'
+                });
+              }
             }
           );
           cleanup = unsubscribe;
@@ -1290,11 +1288,29 @@ const TaskColumn = () => {
   const loadTasks = async () => {
     try {
       setLoading(true);
+      console.log("Loading tasks for project:", projectId);
       const projectDoc = await ProjectService.getProject(projectId);
+      
       if (projectDoc) {
+        console.log("Project data:", {
+          id: projectDoc.id,
+          name: projectDoc.name,
+          organizationId: projectDoc.organizationId,
+          taskCount: projectDoc.tasks?.length || 0
+        });
+        
         const tasks = projectDoc.tasks || [];
-        // Sort and filter tasks based on your requirements
+        console.log("Project tasks:", tasks.map(t => ({
+          id: t.id,
+          name: t.name,
+          assignedTo: t.assignedTo,
+          assignee: t.assignee,
+          organizationId: t.organizationId
+        })));
+        
         setTasks(tasks);
+      } else {
+        console.error("Project not found:", projectId);
       }
     } catch (error) {
       console.error('Error loading tasks:', error);
@@ -1337,7 +1353,7 @@ const TaskColumn = () => {
     }
   };
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <CustomLoader message="Loading tasks..." />;
 
   return (
     <Box sx={{ padding: "37px" }}>
@@ -1361,8 +1377,19 @@ const TaskColumn = () => {
       </Breadcrumbs>
 
       {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-          <CircularProgress />
+        <Box sx={{ 
+          position: 'absolute', 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          bottom: 0, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          bgcolor: 'rgba(255,255,255,0.7)',
+          zIndex: 1
+        }}>
+          <CustomLoader message="Processing..." />
         </Box>
       ) : error ? (
         <Alert severity="error">{error}</Alert>
@@ -1431,13 +1458,7 @@ const TaskColumn = () => {
               >
                 Create Task
               </Button>
-              <Button
-                variant="outlined"
-                startIcon={<PeopleIcon />}
-                onClick={() => setTeamDialogOpen(true)}
-              >
-                Manage Team
-              </Button>
+             
               <Button
                 variant="outlined"
                 startIcon={<ArrowBack />}
@@ -1479,108 +1500,7 @@ const TaskColumn = () => {
         projectMembers={users}
       />
 
-      <Dialog
-        open={teamDialogOpen} 
-        onClose={() => setTeamDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Manage Project Team</DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 2 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Current Team Members
-            </Typography>
-            <List>
-              {users.map((user) => (
-                <ListItem
-                  key={user.id}
-                  secondaryAction={
-                    user.id !== currentUser.uid && (
-                      <IconButton 
-                        edge="end" 
-                        onClick={() => handleRemoveMember(user.id)}
-                        color="error"
-                      >
-                        <Delete />
-                      </IconButton>
-                    )
-                  }
-                >
-                  <ListItemAvatar>
-                    <Avatar src={user.photoURL}>
-                      {user.name?.charAt(0)}
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText 
-                    primary={user.name || user.email}
-                    secondary={user.role}
-                  />
-                </ListItem>
-              ))}
-            </List>
-
-            <Typography variant="subtitle1" sx={{ mt: 3, mb: 2 }}>
-              Add Team Members
-            </Typography>
-            <List>
-              {allUsers
-                .filter(user => !users.find(u => u.id === user.id))
-                .map((user) => (
-                  <ListItem
-                    key={user.id}
-                    secondaryAction={
-                      <IconButton 
-                        edge="end" 
-                        onClick={() => handleAddMember(user.id)}
-                        color="primary"
-                      >
-                        <AddIcon />
-                      </IconButton>
-                    }
-                  >
-                    <ListItemAvatar>
-                      <Avatar src={user.photoURL}>
-                        {user.name?.charAt(0)}
-                      </Avatar>
-                    </ListItemAvatar>
-                    <ListItemText 
-                      primary={user.name || user.email}
-                      secondary={user.role}
-                    />
-                  </ListItem>
-                ))}
-            </List>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setTeamDialogOpen(false)}>Cancel</Button>
-          <Button 
-            variant="contained"
-            onClick={async () => {
-              try {
-                await ProjectService.updateProject(projectId, {
-                  members: users.map(u => u.id)
-                });
-                setTeamDialogOpen(false);
-                setSnackbar({
-                  open: true,
-                  message: 'Team members updated successfully',
-                  severity: 'success'
-                });
-              } catch (error) {
-                setSnackbar({
-                  open: true,
-                  message: 'Failed to update team members',
-                  severity: 'error'
-                });
-              }
-            }}
-          >
-            Save Changes
-          </Button>
-        </DialogActions>
-      </Dialog>
+     
 
       <Snackbar
         open={snackbar.open}

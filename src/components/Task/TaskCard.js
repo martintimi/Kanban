@@ -30,6 +30,7 @@ import { TaskService } from '../../services/TaskService';
 import SubtaskList from './SubtaskList';
 import TaskStatus from './TaskStatus';
 import { useToast } from '../../context/ToastContext';
+import TaskView from './TaskView';
 
 const TaskCard = ({ task, projectId, onEdit, onDelete, onUpdate }) => {
   const { user } = useAuth();
@@ -37,6 +38,7 @@ const TaskCard = ({ task, projectId, onEdit, onDelete, onUpdate }) => {
   const [anchorEl, setAnchorEl] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [viewOpen, setViewOpen] = useState(false);
   
   const isAssignedToTask = task.assignee === user?.uid;
   
@@ -114,6 +116,10 @@ const TaskCard = ({ task, projectId, onEdit, onDelete, onUpdate }) => {
     ? (task.subtasks.filter(st => st.completed).length / task.subtasks.length) * 100
     : 0;
 
+  const handleCardClick = () => {
+    setViewOpen(true);
+  };
+
   return (
     <>
       <Card 
@@ -126,8 +132,10 @@ const TaskCard = ({ task, projectId, onEdit, onDelete, onUpdate }) => {
             boxShadow: 3,
             transform: 'translateY(-2px)',
             transition: 'all 0.2s'
-          }
+          },
+          cursor: 'pointer'
         }}
+        onClick={handleCardClick}
       >
         <CardContent sx={{ flex: 1 }}>
           <Box sx={{ 
@@ -305,6 +313,13 @@ const TaskCard = ({ task, projectId, onEdit, onDelete, onUpdate }) => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <TaskView
+        open={viewOpen}
+        onClose={() => setViewOpen(false)}
+        task={task}
+        assignee={task.assignee}
+      />
     </>
   );
 };

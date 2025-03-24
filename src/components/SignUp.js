@@ -45,6 +45,18 @@ import { motion } from 'framer-motion';
 import { useToast } from '../context/ToastContext';
 import LoadingButton from '@mui/lab/LoadingButton';
 import { keyframes } from '@mui/system';
+import { useOrganization } from '../context/OrganizationContext';
+import { updateProfile } from 'firebase/auth';
+import { doc, setDoc, serverTimestamp, collection, addDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase/config';
+import { AuthService } from '../services/auth.service';
+import { OrganizationService } from '../services/organization.service';
+import { 
+  ref as storageRef, 
+  uploadBytes, 
+  getDownloadURL 
+} from 'firebase/storage';
+import { storage } from '../firebase/config';
 
 import GoogleLogo from "./img/google-logo.5867462c.svg";
 import GithubLogo from "./img/aawpwnuou.webp";
@@ -110,175 +122,200 @@ const calculatePasswordStrength = (password) => {
   return strength;
 };
 
+const uploadProfilePhoto = async (file) => {
+  try {
+    // Create a unique file name
+    const fileName = `profile_photos/${Date.now()}_${file.name}`;
+    const photoRef = storageRef(storage, fileName);
+    
+    // Upload the file
+    const snapshot = await uploadBytes(photoRef, file);
+    
+    // Get the download URL
+    const downloadURL = await getDownloadURL(snapshot.ref);
+    return downloadURL;
+  } catch (error) {
+    console.error('Error uploading photo:', error);
+    throw new Error('Failed to upload profile photo');
+  }
+};
+
 export default function Signup() {
-  const navigate = useNavigate();
-  const { 
-    signup, 
-    loginWithGoogle, 
-    loginWithGithub, 
-    loading: authLoading, 
-    error, 
-    setError 
-  } = useAuth();
+  const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const { signup } = useAuth();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
-    fullName: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
-    role: "developer",
-    phone: "",
+    email: '',
+    password: '',
+    confirmPassword: '',
+    fullName: '',
+    phone: '',
+    role: '',
+    organizationName: ''
   });
+  const [formErrors, setFormErrors] = useState({});
+  const [inviteUsers, setInviteUsers] = useState([]);
+
+  // Add new state for profile photo and loading states
+  const [profilePhoto, setProfilePhoto] = useState(null);
+  const [photoURL, setPhotoURL] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Password visibility toggle
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [formErrors, setFormErrors] = useState({});
-  const [passwordStrength, setPasswordStrength] = useState(0);
-  const [showPasswordHints, setShowPasswordHints] = useState(false);
-  const [step, setStep] = useState(0);
-  const [avatar, setAvatar] = useState(null);
-  const [avatarPreview, setAvatarPreview] = useState(null);
-  const [termsAccepted, setTermsAccepted] = useState(false);
-  const { showToast } = useToast();
 
   const steps = [
     'Account Details',
-    'Personal Information',
-    'Preferences'
+    'Select Role',
+    formData.role === 'admin' ? 'Create Organization' : 'Complete'
   ];
 
-  const validateStep = (step) => {
-    const newErrors = {};
-    switch (step) {
-      case 0:
-        if (!formData.fullName) newErrors.fullName = 'Full name is required';
-        if (!formData.email) newErrors.email = 'Email is required';
-        else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-          newErrors.email = 'Please enter a valid email address';
-        }
-        if (!formData.password) newErrors.password = 'Password is required';
-        else if (formData.password.length < 8) {
-          newErrors.password = 'Password must be at least 8 characters';
-        }
-        if (formData.password !== formData.confirmPassword) {
-          newErrors.confirmPassword = 'Passwords do not match';
-        }
-        break;
-      case 1:
-        if (formData.phone && !/^\+?[\d\s-]+$/.test(formData.phone)) {
-          newErrors.phone = 'Please enter a valid phone number';
-        }
-        break;
-      case 2:
-        if (!termsAccepted) {
-          newErrors.terms = 'Please accept the terms and conditions';
-        }
-        break;
-      default:
-        break;
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    // Clear error when user types
+    if (formErrors[name]) {
+      setFormErrors(prev => ({ ...prev, [name]: '' }));
     }
-    setFormErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+  };
+
+  const validateStep = (currentStep) => {
+    const errors = {};
+    
+    if (currentStep === 1) {
+      if (!formData.email) {
+        errors.email = 'Email is required';
+      } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+        errors.email = 'Email is invalid';
+      }
+      if (!formData.password) {
+        errors.password = 'Password is required';
+      } else if (formData.password.length < 8) {
+        errors.password = 'Password must be at least 8 characters';
+      } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
+        errors.password = 'Password must contain uppercase, lowercase and numbers';
+      }
+      if (formData.password !== formData.confirmPassword) {
+        errors.confirmPassword = 'Passwords do not match';
+      }
+      if (!formData.fullName) {
+        errors.fullName = 'Full name is required';
+      }
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (step < steps.length - 1) {
-      if (validateStep(step)) {
-        setStep(prev => prev + 1);
-      }
-      return;
-    }
-
-    if (!validateStep(step)) return;
-
+    
     try {
-      setLoading(true);
-      setError(null);
-      
-      const success = await signup({
-        fullName: formData.fullName,
-        email: formData.email,
-        password: formData.password,
-        role: formData.role,
-        photoURL: avatarPreview,
-        phone: formData.phone
-      });
-
-      showToast('🎉 Account created successfully! Welcome aboard!', 'success');
-      navigate("/dashboard");
-    } catch (err) {
-      console.error('Signup error:', err);
-      // Handle specific Firebase auth errors
-      switch (err.code) {
-        case 'auth/email-already-in-use':
-          showToast('❌ This email is already registered. Please use a different email or try logging in.', 'error');
-          setFormErrors(prev => ({
-            ...prev,
-            email: 'Email is already in use'
-          }));
-          setStep(0); // Go back to first step
-          break;
-        case 'auth/invalid-email':
-          showToast('❌ Please enter a valid email address', 'error');
-          break;
-        case 'auth/operation-not-allowed':
-          showToast('❌ Email/password accounts are not enabled. Please contact support.', 'error');
-          break;
-        case 'auth/weak-password':
-          showToast('❌ Please choose a stronger password', 'error');
-          break;
-        case 'auth/admin-restricted-operation':
-          showToast('❌ This operation is restricted. Please try a different method.', 'error');
-          break;
-        default:
-          showToast('❌ Failed to create account. Please try again.', 'error');
+      if (step === 1) {
+        if (!validateStep(1)) return;
+        setStep(2);
+      } 
+      else if (step === 2) {
+        if (!formData.role) {
+          showToast('Please select a role', 'error');
+          return;
+        }
+        
+        if (formData.role === 'admin') {
+          setStep(3);
+        } else {
+          setIsProcessing(true);
+          showToast('Creating your account...', 'info');
+          
+          // Create account for PM or Developer
+          const user = await signup({
+            ...formData,
+            photoURL,
+            profilePhoto
+          });
+          
+          showToast('Account created successfully. Wait for an organization invite.', 'success');
+          navigate('/login');
+        }
       }
+      else if (step === 3) {
+        if (!formData.organizationName || !termsAccepted) {
+          showToast('Please fill all required fields and accept terms', 'error');
+          return;
+        }
+
+        setIsProcessing(true);
+        showToast('Setting up your organization...', 'info');
+
+        // Create admin account and organization
+        const user = await signup({
+          ...formData,
+          photoURL,
+          profilePhoto
+        });
+
+        const org = await OrganizationService.createOrganization({
+          name: formData.organizationName,
+          createdBy: user.uid,
+          owner: user.uid,
+          logo: photoURL, // Add organization logo
+          settings: {
+            allowInvites: true,
+            defaultRole: 'developer',
+            notificationsEnabled: true
+          }
+        });
+
+        showToast('Organization created successfully!', 'success');
+        navigate(`/invite-members/${org.id}`);
+      }
+    } catch (error) {
+      showToast(error.message, 'error');
     } finally {
-      setLoading(false);
+      setIsProcessing(false);
     }
   };
 
   const handleBack = () => {
-    setStep((prev) => prev - 1);
-  };
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-    if (name === 'password') {
-      setPasswordStrength(calculatePasswordStrength(value));
-    }
-    // Clear error when user starts typing
-    if (formErrors[name]) {
-      setFormErrors((prev) => ({
-        ...prev,
-        [name]: "",
-      }));
-    }
-    if (error) {
-      setError(null);
-    }
-  };
-
-  const handleLogin = () => {
-    navigate("/login");
+    setStep(prev => prev - 1);
   };
 
   const handleGoogleSignup = async () => {
     try {
       setLoading(true);
       setError(null);
-      const success = await loginWithGoogle();
-      if (success) {
-        showToast('🎉 Successfully signed in with Google! Welcome!', 'success');
+      // If we're on step 2 or later and a role is selected, try to preserve it
+      let shouldSetRole = step >= 2 && formData.role;
+      let selectedRole = formData.role;
+      
+      const result = await AuthService.loginWithGoogle();
+      
+      if (result && shouldSetRole) {
+        // Update the user's role in Firestore
+        const userRef = doc(db, 'users', result.uid);
+        await updateDoc(userRef, {
+          role: selectedRole,
+          roleUpdatedAt: new Date().toISOString()
+        });
+        showToast(`Your account role is set to ${selectedRole}!`, 'success');
+      }
+      
+      if (result) {
+        showToast('Successfully signed in with Google!', 'success');
         navigate('/dashboard');
       }
-    } catch (error) {
-      console.error('Google signup error:', error);
-      showToast('❌ Failed to sign in with Google. Please try again.', 'error');
+    } catch (err) {
+      console.error('Google signup error:', err);
+      showToast(err.message || 'Failed to sign in with Google', 'error');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -288,331 +325,240 @@ export default function Signup() {
     try {
       setLoading(true);
       setError(null);
-      const success = await loginWithGithub();
-      if (success) {
-        showToast('🎉 Successfully signed in with GitHub! Welcome!', 'success');
+      // If we're on step 2 or later and a role is selected, try to preserve it
+      let shouldSetRole = step >= 2 && formData.role;
+      let selectedRole = formData.role;
+      
+      const result = await AuthService.loginWithGithub();
+      
+      if (result && shouldSetRole) {
+        // Update the user's role in Firestore
+        const userRef = doc(db, 'users', result.uid);
+        await updateDoc(userRef, {
+          role: selectedRole,
+          roleUpdatedAt: new Date().toISOString()
+        });
+        showToast(`Your account role is set to ${selectedRole}!`, 'success');
+      }
+      
+      if (result) {
+        showToast('Successfully signed in with GitHub!', 'success');
         navigate('/dashboard');
       }
-    } catch (error) {
-      console.error('GitHub signup error:', error);
-      showToast('❌ Failed to sign in with GitHub. Please try again.', 'error');
+    } catch (err) {
+      console.error('GitHub signup error:', err);
+      showToast(err.message || 'Failed to sign in with GitHub', 'error');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleClickShowPassword = (field) => {
-    if (field === 'password') {
-      setShowPassword(!showPassword);
-    } else {
-      setShowConfirmPassword(!showConfirmPassword);
-    }
-  };
-
-  const handleAvatarChange = (e) => {
-    const file = e.target.files[0];
+  // Handle profile photo upload
+  const handlePhotoUpload = async (event) => {
+    const file = event.target.files[0];
     if (file) {
-      setAvatar(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatarPreview(reader.result);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const photoURL = await uploadProfilePhoto(file);
+        setPhotoURL(photoURL);
+        setProfilePhoto(file);
+      } catch (error) {
+        showToast('Failed to upload photo', 'error');
+      }
     }
   };
 
   return (
-    <>
-      <AnimatedBackground />
-      <Box
-        component={motion.div}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        sx={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          p: 3
-        }}
-      >
-        <Card
-          elevation={12}
-          sx={{
-            maxWidth: 600,
-            width: '100%',
-            borderRadius: 2,
-            backgroundColor: 'white',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-            position: 'relative',
-            zIndex: 1
-          }}
-        >
-          <CardContent sx={{ p: 4 }}>
-            <Box sx={{ 
-              mb: 3, 
-              textAlign: 'center',
-              backgroundColor: 'white',
-              opacity: 1
-            }}>
-              <Avatar
-                sx={{
-                  width: 60,
-                  height: 60,
-                  margin: '0 auto 16px',
-                  bgcolor: 'primary.main',
-                  opacity: 1
-                }}
-              >
-                <EmailIcon />
-              </Avatar>
-              <Typography 
-                variant="h4" 
-                gutterBottom
-                sx={{ opacity: 1, color: 'text.primary' }}
-              >
-                Create Account
-              </Typography>
-              <Typography 
-                variant="body2" 
-                color="text.secondary"
-                sx={{ opacity: 1 }}
-              >
-                Please fill in the information below
-              </Typography>
-            </Box>
+    <Box sx={{ 
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      bgcolor: 'background.default'
+    }}>
+      <Card sx={{ 
+        maxWidth: 600,
+        width: '100%',
+        mx: 2,
+        boxShadow: 3,
+        borderRadius: 2
+      }}>
+        <CardContent>
+          <Box sx={{ textAlign: 'center', mb: 3 }}>
+            <Typography variant="h4" gutterBottom>
+              Create Account
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Please fill in the information below
+            </Typography>
+          </Box>
 
-            <Stepper 
-              activeStep={step} 
-              sx={{ 
-                mb: 4,
-                backgroundColor: 'white',
-                opacity: 1
-              }}
-            >
-              {steps.map((label) => (
-                <Step key={label}>
-                  <StepLabel>{label}</StepLabel>
-                </Step>
-              ))}
-            </Stepper>
+          <Stepper activeStep={step - 1} sx={{ mb: 4 }}>
+            {steps.map((label) => (
+              <Step key={label}>
+                <StepLabel>{label}</StepLabel>
+              </Step>
+            ))}
+          </Stepper>
 
-            <form onSubmit={handleSubmit}>
-              {step === 0 && (
-                <>
-                  <TextField
-                    label="Full Name"
-                    variant="outlined"
-                    fullWidth
-                    name="fullName"
-                    value={formData.fullName}
-                    onChange={handleChange}
-                    error={!!formErrors.fullName}
-                    helperText={formErrors.fullName}
-                    sx={{ mb: 2 }}
-                  />
-
-                  <TextField
-                    label="Email Address"
-                    variant="outlined"
-                    type="email"
-                    fullWidth
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    error={!!formErrors.email}
-                    helperText={formErrors.email}
-                    sx={{ mb: 2 }}
-                  />
-
-                  <FormControl variant="outlined" fullWidth sx={{ mt: 2 }} required>
-                    <InputLabel htmlFor="password">Password</InputLabel>
-                    <OutlinedInput
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      name="password"
-                      value={formData.password}
-                      onChange={handleChange}
-                      error={!!formErrors.password}
-                      endAdornment={
-                        <InputAdornment position="end">
-                          <IconButton
-                            onClick={() => handleClickShowPassword('password')}
-                            edge="end"
-                          >
-                            {showPassword ? <VisibilityOff /> : <Visibility />}
-                          </IconButton>
-                        </InputAdornment>
-                      }
-                      label="Password"
-                      onFocus={() => setShowPasswordHints(true)}
-                    />
-                    {showPasswordHints && (
-                      <Box sx={{ mt: 1, p: 2, bgcolor: 'background.paper', borderRadius: 1, boxShadow: 1 }}>
-                        <Typography variant="caption" color="text.secondary" gutterBottom>
-                          Password strength: {strengthLabels[passwordStrength]}
-                        </Typography>
-                        <LinearProgress
-                          variant="determinate"
-                          value={(passwordStrength / 4) * 100}
-                          sx={{
-                            mt: 1,
-                            mb: 2,
-                            height: 8,
-                            borderRadius: 4,
-                            bgcolor: 'grey.200',
-                            '& .MuiLinearProgress-bar': {
-                              bgcolor: 
-                                passwordStrength <= 1 ? 'error.main' :
-                                passwordStrength === 2 ? 'warning.main' :
-                                passwordStrength === 3 ? 'info.main' :
-                                'success.main'
-                            }
-                          }}
-                        />
-                        <Typography variant="caption" component="div" color="text.secondary">
-                          Password must contain:
-                        </Typography>
-                        <Box component="ul" sx={{ m: 0, pl: 2 }}>
-                          <Typography variant="caption" component="li" color={/[A-Z]/.test(formData.password) ? 'success.main' : 'text.secondary'}>
-                            At least one uppercase letter
-                          </Typography>
-                          <Typography variant="caption" component="li" color={/[0-9]/.test(formData.password) ? 'success.main' : 'text.secondary'}>
-                            At least one number
-                          </Typography>
-                          <Typography variant="caption" component="li" color={/[!@#$%^&*]/.test(formData.password) ? 'success.main' : 'text.secondary'}>
-                            At least one special character
-                          </Typography>
-                          <Typography variant="caption" component="li" color={formData.password.length >= 8 ? 'success.main' : 'text.secondary'}>
-                            Minimum 8 characters
-                          </Typography>
-                        </Box>
-                      </Box>
-                    )}
-                    {formErrors.password && (
-                      <FormHelperText error>{formErrors.password}</FormHelperText>
-                    )}
-                  </FormControl>
-
-                  <FormControl variant="outlined" fullWidth sx={{ mt: 2 }} required>
-                    <InputLabel htmlFor="confirmPassword">Confirm Password</InputLabel>
-                    <OutlinedInput
-                      id="confirmPassword"
-                      type={showConfirmPassword ? 'text' : 'password'}
-                      name="confirmPassword"
-                      value={formData.confirmPassword}
-                      onChange={handleChange}
-                      error={!!formErrors.confirmPassword}
-                      endAdornment={
-                        <InputAdornment position="end">
-                          <IconButton
-                            onClick={() => handleClickShowPassword('confirm')}
-                            edge="end"
-                          >
-                            {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
-                          </IconButton>
-                        </InputAdornment>
-                      }
-                      label="Confirm Password"
-                    />
-                    {formErrors.confirmPassword && (
-                      <FormHelperText error>{formErrors.confirmPassword}</FormHelperText>
-                    )}
-                  </FormControl>
-                </>
-              )}
-
-              {step === 1 && (
-                <>
-                  <Box sx={{ textAlign: 'center', mb: 3 }}>
-                    <input
-                      accept="image/*"
-                      type="file"
-                      id="avatar-upload"
-                      hidden
-                      onChange={handleAvatarChange}
-                    />
-                    <label htmlFor="avatar-upload">
-                      <Badge
-                        overlap="circular"
-                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                        badgeContent={
-                          <IconButton component="span">
-                            <AddAPhotoIcon />
-                          </IconButton>
-                        }
-                      >
-                        <Avatar
-                          src={avatarPreview}
-                          sx={{ width: 100, height: 100, cursor: 'pointer' }}
-                        />
-                      </Badge>
-                    </label>
-                  </Box>
-                  <TextField
-                    fullWidth
-                    label="Full Name"
-                    name="fullName"
-                    value={formData.fullName}
-                    onChange={handleChange}
-                    margin="normal"
-                    required
-                  />
-                  <TextField
-                    fullWidth
-                    label="Phone Number"
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleChange}
-                    margin="normal"
-                  />
-                </>
-              )}
-
-              {step === 2 && (
-                <>
-                  <FormControl fullWidth margin="normal">
-                    <InputLabel>Role</InputLabel>
-                    <Select
-                      value={formData.role}
-                      onChange={handleChange}
-                      name="role"
-                    >
-                      <MenuItem value="developer">Developer</MenuItem>
-                      <MenuItem value="project_manager">Project Manager</MenuItem>
-                      <MenuItem value="admin">Admin</MenuItem>
-                    </Select>
-                  </FormControl>
-                  
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={termsAccepted}
-                        onChange={(e) => setTermsAccepted(e.target.checked)}
-                      />
+          <form onSubmit={handleSubmit}>
+            {step === 1 && (
+              <>
+                <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
+                  <Badge
+                    overlap="circular"
+                    anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                    badgeContent={
+                      <IconButton component="label">
+                        <input type="file" hidden accept="image/*" onChange={handlePhotoUpload} />
+                        <AddAPhotoIcon />
+                      </IconButton>
                     }
-                    label="I accept the terms and conditions"
-                  />
-                </>
-              )}
+                  >
+                    <Avatar
+                      src={photoURL}
+                      sx={{ width: 100, height: 100 }}
+                    />
+                  </Badge>
+                </Box>
 
-              <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between' }}>
-                {step > 0 && (
-                  <Button onClick={handleBack}>
-                    Back
-                  </Button>
-                )}
-                <Box sx={{ flex: '1 1 auto' }} />
-                <LoadingButton
-                  variant="contained"
-                  type="submit"
-                  loading={loading || authLoading}
+                <TextField
+                  fullWidth
+                  label="Full Name"
+                  name="fullName"
+                  value={formData.fullName}
+                  onChange={handleChange}
+                  error={!!formErrors.fullName}
+                  helperText={formErrors.fullName}
+                  margin="normal"
+                  required
+                />
+
+                <TextField
+                  fullWidth
+                  label="Email Address"
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  error={!!formErrors.email}
+                  helperText={formErrors.email}
+                  margin="normal"
+                  required
+                />
+
+                <TextField
+                  fullWidth
+                  label="Password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={formData.password}
+                  onChange={handleChange}
+                  error={!!formErrors.password}
+                  helperText={formErrors.password}
+                  margin="normal"
+                  required
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton onClick={() => setShowPassword(!showPassword)}>
+                          {showPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+
+                <TextField
+                  fullWidth
+                  label="Confirm Password"
+                  name="confirmPassword"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={formData.confirmPassword}
+                  onChange={handleChange}
+                  error={!!formErrors.confirmPassword}
+                  helperText={formErrors.confirmPassword}
+                  margin="normal"
+                  required
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
+                          {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </>
+            )}
+
+            {step === 2 && (
+              <FormControl fullWidth>
+                <InputLabel>Select Role</InputLabel>
+                <Select
+                  value={formData.role}
+                  onChange={handleChange}
+                  name="role"
+                  required
                 >
-                  {step < steps.length - 1 ? 'Next' : 'Create Account'}
-                </LoadingButton>
-              </Box>
-            </form>
+                  <MenuItem value="admin">Administrator</MenuItem>
+                  <MenuItem value="project_manager">Project Manager</MenuItem>
+                  <MenuItem value="developer">Developer</MenuItem>
+                </Select>
+                <FormHelperText>
+                  {formData.role === 'admin' 
+                    ? 'As admin, you can create and manage organizations' 
+                    : 'You will need an invitation to join an organization'}
+                </FormHelperText>
+              </FormControl>
+            )}
 
+            {step === 3 && (
+              <>
+                <TextField
+                  fullWidth
+                  label="Organization Name"
+                  name="organizationName"
+                  value={formData.organizationName}
+                  onChange={handleChange}
+                  margin="normal"
+                  required
+                  helperText="Create your organization"
+                />
+
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={termsAccepted}
+                      onChange={(e) => setTermsAccepted(e.target.checked)}
+                      required
+                    />
+                  }
+                  label="I accept the terms and conditions"
+                />
+              </>
+            )}
+
+            <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between' }}>
+              {step > 1 && (
+                <Button onClick={handleBack}>
+                  Back
+                </Button>
+              )}
+              <Box sx={{ flex: '1 1 auto' }} />
+              <LoadingButton
+                variant="contained"
+                type="submit"
+                loading={isProcessing}
+                disabled={step === 3 && (!formData.organizationName || !termsAccepted)}
+              >
+                {step === 3 ? 'Create Account' : 'Next'}
+              </LoadingButton>
+            </Box>
+          </form>
+
+          {step === 0 && (
             <Box sx={{ mt: 3, textAlign: 'center' }}>
               <Divider sx={{ my: 2 }}>
                 <Typography variant="body2" color="text.secondary">
@@ -627,7 +573,6 @@ export default function Signup() {
                     startIcon={<img src={GoogleLogo} alt="Google" width="20" />}
                     onClick={handleGoogleSignup}
                     loading={loading}
-                    disabled={loading}
                     sx={{ minWidth: '200px' }}
                   >
                     Continue with Google
@@ -639,7 +584,6 @@ export default function Signup() {
                     startIcon={<img src={GithubLogo} alt="GitHub" width="20" />}
                     onClick={handleGithubSignup}
                     loading={loading}
-                    disabled={loading}
                     sx={{ minWidth: '200px' }}
                   >
                     Continue with GitHub
@@ -647,9 +591,9 @@ export default function Signup() {
                 </Grid>
               </Grid>
             </Box>
-          </CardContent>
-        </Card>
-      </Box>
-    </>
+          )}
+        </CardContent>
+      </Card>
+    </Box>
   );
 }

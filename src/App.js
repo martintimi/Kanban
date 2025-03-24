@@ -7,7 +7,7 @@ import SignUp from "./components/SignUp";
 import Dashboard from './components/Dashboard';
 import SideNav from './components/SideNav';
 import 'bootstrap/dist/css/bootstrap.min.css';
-import { Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, useLocation, Navigate, useNavigate, useParams } from 'react-router-dom';
 import TaskColumn from './components/Task/TaskColumn';
 import IconButton from '@mui/material/IconButton';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -40,6 +40,22 @@ import CssBaseline from '@mui/material/CssBaseline';
 import { BrowserRouter } from 'react-router-dom';
 import ResourceDashboard from './components/ResourceManagement/ResourceDashboard';
 import ProjectCalendar from './components/Calendar/ProjectCalendar';
+import { OrganizationProvider, useOrganization } from './context/OrganizationContext';
+import Button from '@mui/material/Button';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+} from '@mui/material';
+import { OrganizationManagement } from './components/Organization';
+import CustomLoader from './components/CustomLoader';
+import MeetingRoom from './components/Meeting/MeetingRoom';
+import JoinPage from './components/Join/JoinPage';
+import PrivateRoute from './components/Auth/PrivateRoute';
+import { AIAssistantProvider } from './context/AIAssistantContext';
+import AIAssistant from './components/AIAssistant/AIAssistant';
 
 const ProtectedRoute = ({ children, authRequired = true }) => {
   const { user, loading, logout } = useAuth();
@@ -92,7 +108,11 @@ const ProtectedRoute = ({ children, authRequired = true }) => {
   };
 
   if (loading) {
-    return <LoadingSpinner message="Setting up your workspace..." />;
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CustomLoader message="Setting up your workspace..." />
+      </Box>
+    );
   }
   
   if (authRequired && !user) {
@@ -127,115 +147,88 @@ const RoleProtectedRoute = ({ children, allowedRoles }) => {
   return <ProtectedRoute>{children}</ProtectedRoute>;
 };
 
-function AppContent() {
-  const location = useLocation();
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const { loading } = useAuth();
-  const isAuthPage = location.pathname === '/login' || location.pathname === '/sign_up';
+const MeetingWrapper = () => {
+  const navigate = useNavigate();
+  const { meetingId } = useParams();
 
-  useEffect(() => {
-    SoundManager.preloadSounds();
-  }, []);
-
-  if (loading) {
-    return <LoadingSpinner message="Setting up your workspace..." />;
-  }
-
-  const handleDrawerToggle = () => {
-    setDrawerOpen(!drawerOpen);
+  const handleLeave = () => {
+    // Close the tab if it was opened in a new tab
+    if (window.opener) {
+      window.close();
+    } else {
+      // Otherwise navigate back
+      navigate('/organization-management');
+    }
   };
 
+  return (
+    <MeetingRoom 
+      roomId={meetingId}
+      onLeave={handleLeave}
+    />
+  );
+};
+
+function AppContent() {
+  const location = useLocation();
+  const { user, loading } = useAuth();
+  const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CustomLoader message="Setting up your workspace..." />
+      </Box>
+    );
+  }
+
+  // For auth pages, render without navigation
+  if (isAuthPage) {
+    return (
+      <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
+        <Routes>
+          <Route path="/login" element={
+            <ProtectedRoute authRequired={false}>
+              <Login />
+            </ProtectedRoute>
+          } />
+          <Route path="/signup" element={
+            <ProtectedRoute authRequired={false}>
+              <SignUp />
+            </ProtectedRoute>
+          } />
+        </Routes>
+      </Box>
+    );
+  }
+
+  // For authenticated pages with navigation
   return (
     <Box sx={{ 
       display: 'flex', 
       minHeight: '100vh',
-      width: '100%'
+      width: '100%',
+      position: 'relative'
     }}>
-      {!isAuthPage && (
-        <>
-          <IconButton
-            color="inherit"
-            aria-label="open drawer"
-            onClick={handleDrawerToggle}
-            sx={{
-              display: { xs: 'block', sm: 'none' },
-              position: 'fixed',
-              top: '20px',
-              left: '1px',
-              zIndex: 1200
-            }}
-          >
-            <MenuIcon />
-          </IconButton>
-
-          <Box
-            component="nav"
-            sx={{
-              width: { sm: 240 },
-              flexShrink: 0,
-            }}
-          >
-            <Drawer
-              variant="temporary"
-              open={drawerOpen}
-              onClose={handleDrawerToggle}
-              ModalProps={{
-                keepMounted: true,
-              }}
-              sx={{
-                display: { xs: 'block', sm: 'none' },
-                '& .MuiDrawer-paper': {
-                  width: 200,
-                },
-              }}
-            >
-              <SideNav onClose={handleDrawerToggle} />
-            </Drawer>
-            <Box
-              sx={{
-                display: { xs: 'none', sm: 'block' },
-                width: 240,
-                height: '100%',
-              }}
-            >
-              <SideNav />
-            </Box>
-          </Box>
-          <TopNav />
-        </>
-      )}
+      <SideNav />
+      <TopNav />
       
       <Box
         component="main"
         sx={{
           flexGrow: 1,
-          width: { sm: `calc(100% - 240px)` },
+          width: '100%',
           minHeight: '100vh',
-          pt: isAuthPage ? 0 : '64px',
+          pt: '64px',
+          transition: 'margin-left 0.3s',
           overflow: 'hidden',
         }}
       >
         <Routes>
-          <Route path="/" element={<Navigate to="/login" />} />
-          <Route path="/login" element={
-            <ProtectedRoute authRequired={false}>
-              <PageTransition>
-                <Login />
-              </PageTransition>
-            </ProtectedRoute>
-          } />
-          <Route path="/sign_up" element={
-            <ProtectedRoute authRequired={false}>
-              <PageTransition>
-                <SignUp />
-              </PageTransition>
-            </ProtectedRoute>
-          } />
+          <Route path="/" element={<Navigate to={user ? "/dashboard" : "/login"} />} />
           <Route path="/dashboard" element={
             <ProtectedRoute>
-              <PageTransition>
-                <Dashboard />
-              </PageTransition>
+              <Dashboard />
             </ProtectedRoute>
           } />
           <Route path="/task-column/:projectId" element={
@@ -281,6 +274,21 @@ function AppContent() {
               </PageTransition>
             </RoleProtectedRoute>
           } />
+          <Route path="/organization-management" element={
+            <ProtectedRoute>
+              <OrganizationManagement />
+            </ProtectedRoute>
+          } />
+          <Route path="/meetings/:meetingId" element={
+            <ProtectedRoute>
+              <MeetingWrapper />
+            </ProtectedRoute>
+          } />
+          <Route path="/join" element={
+            <ProtectedRoute authRequired={false}>
+              <JoinPage />
+            </ProtectedRoute>
+          } />
         </Routes>
       </Box>
     </Box>
@@ -289,10 +297,23 @@ function AppContent() {
 
 function AppWithTheme() {
   const { darkMode } = useTheme();
+  const { user } = useAuth();
+  const location = useLocation();
+  const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
 
   const theme = createTheme({
     palette: {
       mode: darkMode ? 'dark' : 'light',
+      primary: {
+        main: '#3f51b5', // Material UI blue
+        light: '#757de8',
+        dark: '#303f9f',
+      },
+      secondary: {
+        main: '#f50057', // Pink accent for buttons/highlights
+        light: '#ff4081',
+        dark: '#c51162',
+      },
       background: {
         default: darkMode ? '#121212' : '#f5f5f5',
         paper: darkMode ? '#1e1e1e' : '#ffffff',
@@ -302,11 +323,61 @@ function AppWithTheme() {
         secondary: darkMode ? '#b3b3b3' : '#666666',
       },
     },
+    typography: {
+      fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
+      h1: {
+        fontSize: '2.5rem',
+        fontWeight: 700,
+        lineHeight: 1.2,
+      },
+      h2: {
+        fontSize: '2rem',
+        fontWeight: 700,
+        lineHeight: 1.3,
+      },
+      h3: {
+        fontSize: '1.75rem',
+        fontWeight: 600,
+        lineHeight: 1.3,
+      },
+      h4: {
+        fontSize: '1.5rem',
+        fontWeight: 600,
+        lineHeight: 1.4,
+      },
+      h5: {
+        fontSize: '1.25rem',
+        fontWeight: 500,
+        lineHeight: 1.5,
+      },
+      h6: {
+        fontSize: '1rem',
+        fontWeight: 500,
+        lineHeight: 1.5,
+      },
+    },
     components: {
       MuiPaper: {
         styleOverrides: {
           root: {
             backgroundImage: 'none',
+          },
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          root: {
+            textTransform: 'none',
+            borderRadius: 8,
+            fontWeight: 500,
+          },
+        },
+      },
+      MuiCard: {
+        styleOverrides: {
+          root: {
+            borderRadius: 12,
+            boxShadow: '0 6px 12px rgba(0,0,0,0.1)',
           },
         },
       },
@@ -323,6 +394,7 @@ function AppWithTheme() {
         transition: 'all 0.3s ease'
       }}>
         <AppContent />
+        {user && !isAuthPage && <AIAssistant />}
       </Box>
     </MuiThemeProvider>
   );
@@ -334,11 +406,15 @@ function App() {
       <ThemeProvider>
         <ToastProvider>
           <AuthProvider>
-            <ProjectProvider>
-              <ActivityProvider>
-                <AppWithTheme />
-              </ActivityProvider>
-            </ProjectProvider>
+            <OrganizationProvider>
+              <ProjectProvider>
+                <ActivityProvider>
+                  <AIAssistantProvider>
+                    <AppWithTheme />
+                  </AIAssistantProvider>
+                </ActivityProvider>
+              </ProjectProvider>
+            </OrganizationProvider>
           </AuthProvider>
         </ToastProvider>
       </ThemeProvider>

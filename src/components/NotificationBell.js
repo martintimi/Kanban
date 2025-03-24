@@ -87,10 +87,10 @@ const NotificationBell = () => {
           setNotifications(initialNotifications);
           setUnreadCount(initialNotifications.filter(n => !n.read).length);
 
-          // Subscribe to real-time updates
-          unsubscribe = NotificationService.subscribeToNotifications(user.uid, (newNotification) => {
-            setNotifications(prev => [newNotification, ...prev]);
-            setUnreadCount(prev => prev + 1);
+          // Subscribe to real-time updates using the correct method name
+          unsubscribe = NotificationService.subscribeToUserNotifications(user.uid, (newNotifications) => {
+            setNotifications(newNotifications);
+            setUnreadCount(newNotifications.filter(n => !n.read).length);
           });
         } catch (error) {
           console.error('Error setting up notifications:', error);

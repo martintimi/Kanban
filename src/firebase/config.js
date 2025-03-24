@@ -3,6 +3,7 @@ import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getMessaging, isSupported } from 'firebase/messaging';
 import { getAuth, GoogleAuthProvider, GithubAuthProvider } from 'firebase/auth';
+import { getFunctions } from 'firebase/functions';
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -15,9 +16,12 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+
+// Initialize services
 const db = getFirestore(app);
-const storage = getStorage(app);
 const auth = getAuth(app);
+const storage = getStorage(app);
+const functions = getFunctions(app);
 
 // Initialize providers
 const googleProvider = new GoogleAuthProvider();
@@ -34,9 +38,10 @@ isSupported().then(isSupported => {
 export { 
   app, 
   db, 
-  storage, 
-  messaging, 
-  auth,
+  auth, 
+  storage,
+  functions,
   googleProvider,
-  githubProvider 
+  githubProvider,
+  messaging 
 }; 

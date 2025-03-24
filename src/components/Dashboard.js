@@ -17,7 +17,6 @@ import {
   MenuItem,
   Breadcrumbs,
   Link,
-  CircularProgress,
   Alert as MuiAlert,
   Dialog,
   DialogActions,
@@ -36,6 +35,7 @@ import {
   Select,
   Chip,
   ListItemIcon,
+  Button
 } from "@mui/material";
 import {
   Timeline,
@@ -65,6 +65,9 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from '../context/ToastContext';
 import ProjectForm from './Projects/ProjectForm';
 import NotificationList from './NotificationList';
+import { useOrganization } from '../context/OrganizationContext';
+import { LoadingButton } from '@mui/lab';
+import CustomLoader from './CustomLoader';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -75,7 +78,7 @@ export default function Dashboard() {
     createProject, 
     updateProject, 
     deleteProject, 
-    recentActivities,
+    recentActivities = [],
     setProjects
   } = useProjects();
   const [open, setOpen] = useState(false);
@@ -109,6 +112,9 @@ export default function Dashboard() {
   const { refreshActivities } = useActivities();
   const { user } = useAuth();
   const [greeting, setGreeting] = useState('');
+  const { selectedOrg } = useOrganization();
+  const [isCreating, setIsCreating] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   useEffect(() => {
     const getGreeting = () => {
@@ -293,7 +299,7 @@ export default function Dashboard() {
   });
 
   const renderRecentActivities = () => {
-    if (!recentActivities?.length) {
+    if (!recentActivities || !recentActivities.length) {
       return (
         <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
           No recent activities
@@ -304,7 +310,7 @@ export default function Dashboard() {
     return (
       <Timeline>
         {recentActivities.map((activity, index) => (
-          <TimelineItem key={activity.id}>
+          <TimelineItem key={activity.id || index}>
             <TimelineSeparator>
               <TimelineDot 
                 sx={{ 
@@ -318,10 +324,10 @@ export default function Dashboard() {
             </TimelineSeparator>
             <TimelineContent>
               <Typography variant="subtitle2">
-                {activity.action.charAt(0).toUpperCase() + activity.action.slice(1)} Project
+                {activity.action ? (activity.action.charAt(0).toUpperCase() + activity.action.slice(1)) : ''} Project
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                "{activity.projectName}" - {formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}
+                "{activity.projectName}" - {activity.timestamp ? formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true }) : ''}
               </Typography>
             </TimelineContent>
           </TimelineItem>
@@ -405,13 +411,42 @@ export default function Dashboard() {
         : 0}%`,
       content: (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-          <CircularProgress 
-            variant="determinate" 
-            value={projects.length > 0 
-              ? (projects.filter(p => p.status === 'completed').length / projects.length) * 100
-              : 0} 
-            size={40}
-          />
+          <Box sx={{ 
+            position: 'relative',
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            background: `conic-gradient(
+              ${theme.palette.primary.main} ${projects.length > 0 
+                ? (projects.filter(p => p.status === 'completed').length / projects.length) * 100
+                : 0}%, 
+              ${theme.palette.background.paper} 0
+            )`,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              background: theme.palette.background.paper
+            }
+          }}>
+            <Typography
+              variant="caption"
+              sx={{ 
+                position: 'relative', 
+                zIndex: 1,
+                fontWeight: 'bold' 
+              }}
+            >
+              {projects.length > 0 
+                ? Math.round((projects.filter(p => p.status === 'completed').length / projects.length) * 100)
+                : 0}%
+            </Typography>
+          </Box>
         </Box>
       )
     }
@@ -436,12 +471,38 @@ export default function Dashboard() {
     );
   };
 
+  const handleCreateProject = async (projectData) => {
+    if (!selectedOrg?.id) {
+      showToast('Please select an organization first', 'error');
+      return;
+    }
+
+    try {
+      setIsCreating(true);
+      const newProject = await ProjectService.createProject({
+        name: projectData.name,
+        description: projectData.description,
+        priority: projectData.priority,
+        deadline: projectData.deadline,
+        organizationId: selectedOrg.id,
+        createdBy: user.uid,
+        owner: user.uid,
+        category: projectData.category || 'No Category'
+      });
+      
+      showToast('Project created successfully');
+      setProjects(prev => [...prev, newProject]);
+      setCreateDialogOpen(false);
+    } catch (error) {
+      console.error('Error creating project:', error);
+      showToast(error.message || 'Failed to create project', 'error');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   if (loading) {
-    return (
-      <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
-        <CircularProgress />
-      </Box>
-    );
+    return <CustomLoader message="Loading your dashboard..." />;
   }
 
   return (
@@ -460,36 +521,55 @@ export default function Dashboard() {
           <Typography color="text.primary">Dashboard</Typography>
         </Breadcrumbs>
 
-        <Box sx={{ 
-          p: 3, 
-          mb: 4,
-          background: theme.palette.mode === 'dark' 
-            ? 'linear-gradient(to right, #1a1a1a, #2d2d2d)'
-            : 'linear-gradient(to right, #ffffff, #f5f5f5)',
-          borderRadius: 2,
-          boxShadow: theme.palette.mode === 'dark'
-            ? '0 2px 4px rgba(0,0,0,0.2)'
-            : '0 2px 4px rgba(0,0,0,0.05)',
-          color: theme.palette.mode === 'dark' ? '#fff' : '#000'
-        }}>
-          <Typography 
-            variant="h4" 
-            sx={{ 
-              fontWeight: 500,
-              color: theme.palette.mode === 'dark' ? '#fff' : '#000',
-              mb: 1 
-            }}
-          >
-            {`${greeting}, ${user?.fullName || user?.name || user?.email?.split('@')[0] || 'User'}!`}
-          </Typography>
-          <Typography 
-            variant="body1" 
-            sx={{
-              color: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.7)' : 'text.secondary'
-            }}
-          >
-            Welcome to your dashboard. Here's an overview of your projects and tasks.
-          </Typography>
+        <Box 
+          sx={{ 
+            mb: 4,
+            p: 3,
+            borderRadius: 2,
+            background: theme => theme.palette.mode === 'dark' 
+              ? 'linear-gradient(to right, rgba(63, 81, 181, 0.1), rgba(63, 81, 181, 0.05))' 
+              : 'linear-gradient(to right, rgba(63, 81, 181, 0.1), rgba(63, 81, 181, 0.02))',
+            border: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <Box>
+              <Typography 
+                variant="h4" 
+                sx={{ 
+                  fontSize: { xs: '1.5rem', sm: '2rem' },
+                  fontWeight: 'bold',
+                  mb: 1
+                }}
+              >
+                Welcome back, {user?.name || 'User'}!
+              </Typography>
+              <Typography variant="body1" color="text.secondary">
+                {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </Typography>
+            </Box>
+            
+            <Box sx={{ display: 'flex', gap: 2, mt: { xs: 2, sm: 0 } }}>
+              <Button 
+                variant="contained" 
+                color="primary"
+                onClick={() => navigate('/create-task')}
+                sx={{ 
+                  bgcolor: '#3f51b5',
+                  '&:hover': { bgcolor: '#303f9f' }
+                }}
+              >
+                New Task
+              </Button>
+              <Button 
+                variant="outlined"
+                onClick={() => navigate('/projects')}
+              >
+                View Projects
+              </Button>
+            </Box>
+          </Box>
         </Box>
 
         {error && (
@@ -499,37 +579,37 @@ export default function Dashboard() {
         )}
 
         <Grid container spacing={3} sx={{ mb: 4 }}>
-          {statisticsCards.map((item, index) => (
+          {[
+            { title: 'Total Projects', value: '1', icon: 'folder' },
+            { title: 'Total Tasks', value: '2', icon: 'task' },
+            { title: 'In Progress', value: '0', icon: 'hourglass' },
+            { title: 'Overall Progress', value: '0%', icon: 'chart' },
+          ].map((stat, index) => (
             <Grid item xs={12} sm={6} md={3} key={index}>
-              <Card sx={{ 
-                height: '100%', 
-                display: 'flex', 
-                flexDirection: 'column',
-                background: theme.palette.mode === 'dark' 
-                  ? 'linear-gradient(to right, #1a1a1a, #2d2d2d)'
-                  : 'linear-gradient(to right, #ffffff, #f5f5f5)',
-                boxShadow: theme.palette.mode === 'dark'
-                  ? '0 2px 4px rgba(0,0,0,0.2)'
-                  : '0 2px 4px rgba(0,0,0,0.05)',
-              }}>
-                <CardContent>
-                  <Typography 
-                    color="textSecondary" 
-                    gutterBottom
-                    sx={{ color: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.7)' : 'text.secondary' }}
-                  >
-                    {item.title}
-                  </Typography>
-                  <Typography 
-                    variant="h4" 
-                    component="div"
-                    sx={{ color: theme.palette.mode === 'dark' ? '#fff' : 'text.primary' }}
-                  >
-                    {item.value}
-                  </Typography>
-                  {item.content}
-                </CardContent>
-              </Card>
+              <Box
+                sx={{
+                  p: 3,
+                  borderRadius: 2,
+                  bgcolor: 'background.paper',
+                  boxShadow: theme => theme.palette.mode === 'dark' ? '0 4px 20px rgba(0,0,0,0.25)' : '0 4px 20px rgba(0,0,0,0.08)',
+                  transition: 'transform 0.3s, box-shadow 0.3s',
+                  '&:hover': {
+                    transform: 'translateY(-5px)',
+                    boxShadow: theme => theme.palette.mode === 'dark' ? '0 8px 25px rgba(0,0,0,0.3)' : '0 8px 25px rgba(0,0,0,0.12)',
+                  },
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                }}
+              >
+                <Typography color="text.secondary" variant="subtitle2" sx={{ mb: 1, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  {stat.title}
+                </Typography>
+                <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 0, fontSize: { xs: '2rem', md: '2.5rem' } }}>
+                  {stat.value}
+                </Typography>
+              </Box>
             </Grid>
           ))}
         </Grid>
@@ -606,7 +686,7 @@ export default function Dashboard() {
         <Box sx={{ mb: 3 }}>
           <CustomButton
             label="Create Project"
-            onClick={handleOpen}
+            onClick={() => setCreateDialogOpen(true)}
             startIcon={<AddIcon />}
             sx={{
               mb: 3,
@@ -829,7 +909,48 @@ export default function Dashboard() {
             }}
           />
           <CardContent>
-            {renderRecentActivities()}
+            <Box sx={{ maxHeight: '300px', overflow: 'auto' }}>
+              {recentActivities && recentActivities.length > 0 ? (
+                recentActivities.map((activity, index) => (
+                  <Box 
+                    key={index}
+                    sx={{
+                      display: 'flex',
+                      mb: 2,
+                      pb: 2,
+                      borderBottom: index < recentActivities.length - 1 ? '1px solid' : 'none',
+                      borderColor: 'divider'
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: '50%',
+                        bgcolor: '#3f51b5',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                        mr: 2,
+                        flexShrink: 0
+                      }}
+                    >
+                      {/* Icon based on activity type */}
+                    </Box>
+                    
+                    <Box>
+                      <Typography variant="body1">{activity.description}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {activity.timestamp}
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))
+              ) : (
+                <Typography color="text.secondary">No recent activity</Typography>
+              )}
+            </Box>
           </CardContent>
         </Card>
 
@@ -937,12 +1058,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {loading && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
-            <CircularProgress />
-          </Box>
-        )}
-
         {!loading && filteredProjects.length === 0 && (
           <Box sx={{ textAlign: 'center', my: 4 }}>
             <Typography color="text.secondary">
@@ -952,7 +1067,7 @@ export default function Dashboard() {
             </Typography>
             <CustomButton
               label="Create Project"
-              onClick={handleOpen}
+              onClick={() => setCreateDialogOpen(true)}
               variant="contained"
               sx={{ mt: 2 }}
             />
@@ -967,6 +1082,170 @@ export default function Dashboard() {
             <NotificationList />
           </Grid>
         </Grid>
+
+        <Dialog 
+          open={createDialogOpen} 
+          onClose={() => setCreateDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>Create New Project</DialogTitle>
+          <DialogContent>
+            <TextField
+              autoFocus
+              margin="dense"
+              label="Project Name"
+              fullWidth
+              required
+              value={formData.name}
+              onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+            />
+            <TextField
+              margin="dense"
+              label="Description"
+              fullWidth
+              multiline
+              rows={3}
+              value={formData.description}
+              onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+            />
+            <FormControl fullWidth margin="dense">
+              <InputLabel>Category</InputLabel>
+              <Select
+                value={formData.category || 'Development'}
+                onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+              >
+                <MenuItem value="Development">Development</MenuItem>
+                <MenuItem value="Design">Design</MenuItem>
+                <MenuItem value="Marketing">Marketing</MenuItem>
+                <MenuItem value="Other">Other</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl fullWidth margin="dense">
+              <InputLabel>Priority</InputLabel>
+              <Select
+                value={formData.priority || 'Medium'}
+                onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value }))}
+              >
+                <MenuItem value="High">High</MenuItem>
+                <MenuItem value="Medium">Medium</MenuItem>
+                <MenuItem value="Low">Low</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              margin="dense"
+              label="Deadline"
+              type="date"
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+              value={formData.deadline || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, deadline: e.target.value }))}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+            <LoadingButton 
+              onClick={() => handleCreateProject(formData)}
+              loading={isCreating}
+              variant="contained"
+            >
+              Create Project
+            </LoadingButton>
+          </DialogActions>
+        </Dialog>
+
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid item xs={12} md={6}>
+            <Box
+              sx={{
+                p: 3,
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+                boxShadow: theme => theme.palette.mode === 'dark' ? '0 4px 20px rgba(0,0,0,0.25)' : '0 4px 20px rgba(0,0,0,0.08)',
+                height: '100%',
+              }}
+            >
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
+                Task Status Distribution
+              </Typography>
+              {/* Your pie chart component */}
+            </Box>
+          </Grid>
+          
+          <Grid item xs={12} md={6}>
+            <Box
+              sx={{
+                p: 3,
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+                boxShadow: theme => theme.palette.mode === 'dark' ? '0 4px 20px rgba(0,0,0,0.25)' : '0 4px 20px rgba(0,0,0,0.08)',
+                height: '100%',
+              }}
+            >
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
+                Tasks by Priority
+              </Typography>
+              {/* Your bar chart component */}
+            </Box>
+          </Grid>
+        </Grid>
+
+        <Box
+          sx={{
+            mt: 4,
+            p: 3,
+            borderRadius: 2,
+            bgcolor: 'background.paper',
+            boxShadow: theme => theme.palette.mode === 'dark' ? '0 4px 20px rgba(0,0,0,0.25)' : '0 4px 20px rgba(0,0,0,0.08)',
+          }}
+        >
+          <Typography variant="h6" sx={{ mb: 3, fontWeight: 'bold' }}>
+            Recent Activity
+          </Typography>
+          
+          <Box sx={{ maxHeight: '300px', overflow: 'auto' }}>
+            {recentActivities && recentActivities.length > 0 ? (
+              recentActivities.map((activity, index) => (
+                <Box 
+                  key={index}
+                  sx={{
+                    display: 'flex',
+                    mb: 2,
+                    pb: 2,
+                    borderBottom: index < recentActivities.length - 1 ? '1px solid' : 'none',
+                    borderColor: 'divider'
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: '50%',
+                      bgcolor: '#3f51b5',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'white',
+                      mr: 2,
+                      flexShrink: 0
+                    }}
+                  >
+                    {/* Icon based on activity type */}
+                  </Box>
+                  
+                  <Box>
+                    <Typography variant="body1">{activity.description}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {activity.timestamp}
+                    </Typography>
+                  </Box>
+                </Box>
+              ))
+            ) : (
+              <Typography color="text.secondary">No recent activity</Typography>
+            )}
+          </Box>
+        </Box>
       </Box>
     </Box>
   );

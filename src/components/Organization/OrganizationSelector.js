@@ -13,7 +13,7 @@ import {
   Divider
 } from '@mui/material';
 import { Add as AddIcon, Business as BusinessIcon } from '@mui/icons-material';
-import { useOrganization } from '../context/OrganizationContext';
+import { useOrganization } from '../../context/OrganizationContext';
 
 const OrganizationSelector = () => {
   const [anchorEl, setAnchorEl] = useState(null);

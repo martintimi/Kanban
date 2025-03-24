@@ -9,12 +9,14 @@ export const OrganizationProvider = ({ children }) => {
   const [organizations, setOrganizations] = useState([]);
   const [selectedOrg, setSelectedOrg] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [pendingInvitations, setPendingInvitations] = useState([]);
   const { user } = useAuth();
   const { showToast } = useToast();
 
   useEffect(() => {
     if (user) {
       loadOrganizations();
+      loadPendingInvitations();
     }
   }, [user]);
 
@@ -39,6 +41,15 @@ export const OrganizationProvider = ({ children }) => {
     }
   };
 
+  const loadPendingInvitations = async () => {
+    try {
+      const invites = await OrganizationService.getPendingInvitations(user.email);
+      setPendingInvitations(invites);
+    } catch (error) {
+      console.error('Error loading invitations:', error);
+    }
+  };
+
   const selectOrganization = (org) => {
     setSelectedOrg(org);
     localStorage.setItem('selectedOrgId', org.id);
@@ -48,7 +59,11 @@ export const OrganizationProvider = ({ children }) => {
     try {
       const newOrg = await OrganizationService.createOrganization({
         ...orgData,
-        createdBy: user.uid
+        createdBy: user.uid,
+        owner: user.uid,
+        roles: {
+          [user.uid]: 'admin' // Organization creator is admin by default
+        }
       });
       setOrganizations(prev => [...prev, newOrg]);
       selectOrganization(newOrg);
@@ -61,6 +76,34 @@ export const OrganizationProvider = ({ children }) => {
     }
   };
 
+  const getUserOrgRole = (orgId, userId) => {
+    const org = organizations.find(o => o.id === orgId);
+    return org?.roles?.[userId] || null;
+  };
+
+  const inviteMember = async (email, role) => {
+    try {
+      if (!selectedOrg) throw new Error('No organization selected');
+      await OrganizationService.inviteMember(selectedOrg.id, email, role);
+      showToast('Invitation sent successfully', 'success');
+    } catch (error) {
+      showToast(error.message, 'error');
+      throw error;
+    }
+  };
+
+  const acceptInvitation = async (inviteId) => {
+    try {
+      await OrganizationService.acceptInvitation(inviteId, user.uid);
+      await loadPendingInvitations();
+      await loadOrganizations();
+      showToast('Invitation accepted successfully', 'success');
+    } catch (error) {
+      showToast(error.message, 'error');
+      throw error;
+    }
+  };
+
   return (
     <OrganizationContext.Provider value={{
       organizations,
@@ -68,7 +111,12 @@ export const OrganizationProvider = ({ children }) => {
       selectOrganization,
       createOrganization,
       loading,
-      refreshOrganizations: loadOrganizations
+      refreshOrganizations: loadOrganizations,
+      getUserOrgRole,
+      pendingInvitations,
+      inviteMember,
+      acceptInvitation,
+      refreshInvitations: loadPendingInvitations
     }}>
       {children}
     </OrganizationContext.Provider>

@@ -1,52 +1,61 @@
-import { initializeApp } from 'firebase/app';
 import { 
-  getAuth, 
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signInWithPopup, 
   GoogleAuthProvider,
   GithubAuthProvider,
   signOut 
 } from 'firebase/auth';
-import { AUTH_CONFIG } from '../config/auth.config';
-
-// Initialize Firebase
-const app = initializeApp(AUTH_CONFIG.firebase);
-const auth = getAuth(app);
-
-const googleProvider = new GoogleAuthProvider();
-const githubProvider = new GithubAuthProvider();
+import { auth, googleProvider, githubProvider } from '../firebase/config';
 
 export const AuthService = {
+  login: async (email, password) => {
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      return userCredential.user;
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
+    }
+  },
+
+  signup: async (email, password) => {
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      return userCredential.user;
+    } catch (error) {
+      console.error('Signup error:', error);
+      throw error;
+    }
+  },
+
+  resetPassword: async (email) => {
+    try {
+      await sendPasswordResetEmail(auth, email);
+    } catch (error) {
+      console.error('Reset password error:', error);
+      throw error;
+    }
+  },
+
   loginWithGoogle: async () => {
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
-      return {
-        id: user.uid,
-        email: user.email,
-        name: user.displayName,
-        photoURL: user.photoURL,
-        provider: 'google'
-      };
+      return result.user;
     } catch (error) {
-      console.error('Google sign in error:', error);
-      throw new Error(error.message);
+      console.error('Google login error:', error);
+      throw error;
     }
   },
 
   loginWithGithub: async () => {
     try {
       const result = await signInWithPopup(auth, githubProvider);
-      const user = result.user;
-      return {
-        id: user.uid,
-        email: user.email,
-        name: user.displayName,
-        photoURL: user.photoURL,
-        provider: 'github'
-      };
+      return result.user;
     } catch (error) {
-      console.error('Github sign in error:', error);
-      throw new Error(error.message);
+      console.error('Github login error:', error);
+      throw error;
     }
   },
 
@@ -55,7 +64,7 @@ export const AuthService = {
       await signOut(auth);
     } catch (error) {
       console.error('Logout error:', error);
-      throw new Error(error.message);
+      throw error;
     }
   }
 }; 

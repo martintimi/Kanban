@@ -15,18 +15,46 @@ import {
   Typography
 } from '@mui/material';
 import { useAuth } from '../../context/AuthContext';
+import { useOrganization } from '../../context/OrganizationContext';
+import { OrganizationService } from '../../services/organization.service';
 
-const CreateTaskModal = ({ open, onClose, onSubmit, task = null, projectMembers }) => {
+const CreateTaskModal = ({ open, onClose, onSubmit, task = null }) => {
   const { user } = useAuth();
+  const { selectedOrg } = useOrganization();
+  const [members, setMembers] = useState([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     status: 'To Do',
     priority: 'medium',
-    dueDate: new Date().toISOString().split('T')[0], // Format: YYYY-MM-DD
-    assignee: ''
+    dueDate: new Date().toISOString().split('T')[0],
+    assignedTo: ''
   });
 
+  // Fetch organization members
+  useEffect(() => {
+    const loadMembers = async () => {
+      if (!selectedOrg?.id) return;
+      
+      try {
+        setLoadingMembers(true);
+        const orgMembers = await OrganizationService.getOrganizationMembers(selectedOrg.id);
+        console.log('Loaded members:', orgMembers); // Debug log
+        setMembers(orgMembers);
+      } catch (error) {
+        console.error('Error loading members:', error);
+      } finally {
+        setLoadingMembers(false);
+      }
+    };
+
+    if (open) {
+      loadMembers();
+    }
+  }, [selectedOrg?.id, open]);
+
+  // Reset form when task changes
   useEffect(() => {
     if (task) {
       setFormData({
@@ -35,7 +63,7 @@ const CreateTaskModal = ({ open, onClose, onSubmit, task = null, projectMembers 
         status: task.status || 'To Do',
         priority: task.priority || 'medium',
         dueDate: task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        assignee: task.assignee || ''
+        assignedTo: task.assignedTo || ''
       });
     } else {
       setFormData({
@@ -44,29 +72,41 @@ const CreateTaskModal = ({ open, onClose, onSubmit, task = null, projectMembers 
         status: 'To Do',
         priority: 'medium',
         dueDate: new Date().toISOString().split('T')[0],
-        assignee: ''
+        assignedTo: ''
       });
     }
   }, [task]);
 
   const handleSubmit = (e) => {
-    if (e && e.preventDefault) {
-      e.preventDefault();
-    }
-
-    const dataToSubmit = {
+    e.preventDefault();
+    
+    // Prepare task data with all required fields
+    const taskData = {
       name: formData.name,
-      description: formData.description,
-      status: formData.status,
-      priority: formData.priority,
-      dueDate: formData.dueDate,
-      assignee: formData.assignee
+      description: formData.description || '',
+      status: formData.status || 'To Do',
+      priority: formData.priority || 'medium',
+      dueDate: formData.dueDate || new Date().toISOString().split('T')[0],
+      assignedTo: formData.assignedTo || null,
+      assignee: formData.assignedTo || null, // Add assignee field for backward compatibility
+      organizationId: selectedOrg?.id,
+      createdBy: user.uid,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      subtasks: [],
+      comments: [],
+      attachments: [],
+      progress: 0,
+      timeSpent: 0,
+      timeEstimate: 0
     };
 
+    console.log("Submitting task with data:", taskData);
+
     if (task) {
-      onSubmit(task.id, dataToSubmit);
+      onSubmit(task.id, taskData);
     } else {
-      onSubmit(dataToSubmit);
+      onSubmit(taskData);
     }
     onClose();
   };
@@ -134,23 +174,31 @@ const CreateTaskModal = ({ open, onClose, onSubmit, task = null, projectMembers 
             <FormControl fullWidth>
               <InputLabel>Assign To</InputLabel>
               <Select
-                value={formData.assignee}
+                value={formData.assignedTo}
                 label="Assign To"
-                onChange={(e) => setFormData({ ...formData, assignee: e.target.value })}
+                onChange={(e) => {
+                  console.log('Selected member:', e.target.value); // Debug log
+                  setFormData({ ...formData, assignedTo: e.target.value });
+                }}
+                disabled={loadingMembers}
               >
-                <MenuItem value="">Unassigned</MenuItem>
-                {projectMembers?.map((member) => (
+                {members.map((member) => (
                   <MenuItem key={member.id} value={member.id}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Avatar 
                         src={member.photoURL} 
                         sx={{ width: 24, height: 24 }}
                       >
-                        {member.name?.charAt(0)}
+                        {member.name?.charAt(0) || member.email?.charAt(0)}
                       </Avatar>
-                      <Typography>
-                        {member.name || member.email}
-                      </Typography>
+                      <Box>
+                        <Typography variant="body2">
+                          {member.name || member.email}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {member.role}
+                        </Typography>
+                      </Box>
                     </Box>
                   </MenuItem>
                 ))}

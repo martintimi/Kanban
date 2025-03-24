@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  CircularProgress
 } from '@mui/material';
 import {
   Timeline,
@@ -22,11 +23,13 @@ import { LocalizationProvider, DateTimePicker } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useProjects } from '../../context/ProjectContext';
 import { useToast } from '../../context/ToastContext';
+import CustomLoader from '../CustomLoader';
 
 const ProjectCalendar = () => {
   const [events, setEvents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [newEvent, setNewEvent] = useState({
     title: '',
     startDate: new Date(),
@@ -38,9 +41,9 @@ const ProjectCalendar = () => {
   const { showToast } = useToast();
 
   useEffect(() => {
-    // Collect all project deadlines and milestones
+    setLoading(true);
+    
     const projectEvents = projects.reduce((acc, project) => {
-      // Add project deadlines
       if (project.deadline) {
         acc.push({
           title: `${project.name} Deadline`,
@@ -50,7 +53,6 @@ const ProjectCalendar = () => {
         });
       }
 
-      // Add task deadlines
       project.tasks?.forEach(task => {
         if (task.dueDate) {
           acc.push({
@@ -67,24 +69,22 @@ const ProjectCalendar = () => {
     }, []);
 
     setEvents(projectEvents);
+    setLoading(false);
   }, [projects]);
 
   const handleAddEvent = async () => {
     try {
-      // Add validation
       if (!newEvent.title || !newEvent.startDate || !newEvent.endDate) {
         showToast('Please fill in all fields', 'error');
         return;
       }
 
-      // Add the event to your events list
       setEvents(prev => [...prev, {
         ...newEvent,
         date: newEvent.startDate,
         type: 'meeting'
       }]);
 
-      // Close dialog and reset form
       setDialogOpen(false);
       setNewEvent({
         title: '',
@@ -116,6 +116,7 @@ const ProjectCalendar = () => {
         </Box>
 
         <Paper sx={{ p: 2 }}>
+          {loading && <CustomLoader message="Loading calendar events..." />}
           <Timeline>
             {events.map((event, index) => (
               <TimelineItem key={index}>

@@ -42,9 +42,12 @@ import { useToast } from '../../context/ToastContext';
 import ProjectAnalytics from './ProjectAnalytics';
 import ProjectTimeline from './ProjectTimeline';
 import ProjectForm from './ProjectForm';
+import { useOrganization } from '../../context/OrganizationContext';
+import CustomLoader from '../CustomLoader';
 
 const Projects = () => {
   const { user } = useAuth();
+  const { selectedOrg } = useOrganization();
   const { 
     createProject, 
     projects, 
@@ -78,9 +81,27 @@ const Projects = () => {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const { showToast } = useToast();
 
+  // Only show create project button for admin/PM
+  const canCreateProject = selectedOrg?.roles?.[user.uid] === 'admin' || 
+                          selectedOrg?.roles?.[user.uid] === 'project_manager';
+
   const handleCreateProject = async () => {
     try {
-      await createProject(projectData);
+      if (!selectedOrg) {
+        showToast('Please select an organization first', 'error');
+        return;
+      }
+
+      const newProject = {
+        ...projectData,
+        organizationId: selectedOrg.id,
+        createdBy: user.uid,
+        members: [user.uid],
+        status: 'active',
+        createdAt: new Date().toISOString()
+      };
+
+      await createProject(newProject);
       setOpenDialog(false);
       setProjectData({
         name: '',
@@ -92,7 +113,7 @@ const Projects = () => {
       });
       showToast('Project created successfully', 'success');
     } catch (error) {
-      showToast(error.message, 'error');
+      showToast(error.message || 'Failed to create project', 'error');
     }
   };
 
@@ -210,7 +231,7 @@ const Projects = () => {
     }
   };
 
-  if (loading) return <LinearProgress />;
+  if (loading) return <CustomLoader message="Loading projects..." />;
 
   return (
     <Box sx={{ p: 5 }}>
@@ -226,13 +247,15 @@ const Projects = () => {
         mt: 4
       }}>
         <Typography variant="h4">Projects</Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setOpenDialog(true)}
-        >
-          New Project
-        </Button>
+        {canCreateProject && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setOpenDialog(true)}
+          >
+            New Project
+          </Button>
+        )}
       </Box>
 
       {error && (

@@ -11,7 +11,8 @@ import {
   query,
   where,
   orderBy,
-  serverTimestamp
+  serverTimestamp,
+  arrayRemove
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { NotificationService } from './notification.service';
@@ -153,8 +154,35 @@ export const TaskService = {
   // Delete task
   deleteTask: async (projectId, taskId) => {
     try {
-      const taskRef = doc(db, `projects/${projectId}/tasks/${taskId}`);
-      await deleteDoc(taskRef);
+      console.log(`Deleting task ${taskId} from project ${projectId}`);
+      
+      // Get the current project
+      const projectRef = doc(db, 'projects', projectId);
+      const projectSnap = await getDoc(projectRef);
+      
+      if (!projectSnap.exists()) {
+        throw new Error('Project not found');
+      }
+      
+      // Get the current tasks list
+      const projectData = projectSnap.data();
+      const currentTasks = projectData.tasks || [];
+      
+      // Filter out the task to delete
+      const updatedTasks = currentTasks.filter(task => task.id !== taskId);
+      
+      if (currentTasks.length === updatedTasks.length) {
+        console.warn(`Task ${taskId} not found in project tasks`);
+      }
+      
+      // Update the project document with the new tasks array
+      await updateDoc(projectRef, {
+        tasks: updatedTasks,
+        updatedAt: serverTimestamp()
+      });
+      
+      console.log(`Task ${taskId} deleted successfully`);
+      return true;
     } catch (error) {
       console.error('Error deleting task:', error);
       throw error;

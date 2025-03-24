@@ -1,37 +1,18 @@
 import React from 'react';
-import { Box, CircularProgress, Typography } from '@mui/material';
-import { motion } from 'framer-motion';
+import { Box } from '@mui/material';
+import CustomLoader from './CustomLoader';
 
-const LoadingSpinner = ({ message = "Loading..." }) => {
+const LoadingSpinner = ({ message = "Setting up your workspace..." }) => {
   return (
-    <Box
-      component={motion.div}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        gap: 2,
-      }}
-    >
-      <motion.div
-        animate={{ rotate: 360 }}
-        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-      >
-        <CircularProgress size={60} />
-      </motion.div>
-      <Typography
-        variant="h6"
-        component={motion.h6}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-      >
-        {message}
-      </Typography>
+    <Box sx={{ 
+      display: 'flex', 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      height: '100vh',
+      width: '100%',
+      bgcolor: 'background.default'
+    }}>
+      <CustomLoader message={message} />
     </Box>
   );
 };

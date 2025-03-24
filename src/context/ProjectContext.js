@@ -3,6 +3,7 @@ import { ProjectService } from '../services/project.service';
 import { useAuth } from './AuthContext';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
+import { useOrganization } from './OrganizationContext';
 
 const ProjectContext = createContext();
 
@@ -11,6 +12,7 @@ export const ProjectProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { user } = useAuth();
+  const { selectedOrg } = useOrganization();
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -72,33 +74,21 @@ export const ProjectProvider = ({ children }) => {
   };
 
   const createProject = async (projectData) => {
-    if (!user?.uid) {
-      throw new Error('User not authenticated');
-    }
-
-    setLoading(true);
     try {
-      const newProject = await ProjectService.createProject(projectData, user.uid);
-      
-      setProjects(prev => {
-        const updated = [...prev, newProject];
-        calculateProjectStats(updated);
-        updateProjectProgress(updated);
-        return updated;
+      if (!selectedOrg) {
+        throw new Error('No organization selected');
+      }
+
+      const newProject = await ProjectService.createProject({
+        ...projectData,
+        organizationId: selectedOrg.id
       });
 
-      addActivity({
-        action: 'created',
-        projectName: newProject.name
-      });
-
+      setProjects(prev => [...prev, newProject]);
       return newProject;
     } catch (error) {
-      console.error('Error creating project:', error);
       setError(error.message);
       throw error;
-    } finally {
-      setLoading(false);
     }
   };
 
